@@ -7,7 +7,9 @@ from jarvis.services import (
     event_log,
     goal_runner,
     improve_run,
+    intent,
     learning,
+    local_runtime,
     memory,
     notion_sync,
     router,
@@ -18,6 +20,7 @@ from jarvis.services import (
     task_priority,
     task_splitter,
     tasks,
+    terminal,
     worker,
 )
 
@@ -89,6 +92,7 @@ async def _queue_batch(
     fast_notes: list[str] = []
     queued_count = 0
 
+    children: list[tuple[str, dict]] = []
     for part in ordered:
         prio, _ = task_priority.estimate_priority(part)
         child = await tasks.create_task(
@@ -101,6 +105,32 @@ async def _queue_batch(
             priority=prio,
         )
         child_ids.append(child["id"])
+        children.append((part, child))
+
+    full_access = await security.is_full_access()
+    terminal_parts: list[tuple[str, dict]] = []
+    other_batch: list[tuple[str, dict]] = []
+    for part, child in children:
+        kind = intent.classify(part)
+        if local_runtime.is_terminal_task(part, kind=kind):
+            terminal_parts.append((part, child))
+        else:
+            other_batch.append((part, child))
+
+    if len(terminal_parts) > 1:
+        results = await terminal.execute_parallel(
+            [p for p, _ in terminal_parts],
+            full_access=full_access,
+            voice=voice,
+        )
+        for (_, child), result in zip(terminal_parts, results):
+            status = "done" if result.get("ok") else "failed"
+            await tasks.update_task_status(child["id"], status)
+            fast_notes.append(result.get("reply", "Done."))
+    elif len(terminal_parts) == 1:
+        other_batch.insert(0, terminal_parts[0])
+
+    for part, child in other_batch:
         routed = await router.route(
             part,
             voice=voice,
@@ -484,7 +514,7 @@ async def handle_message(
         return {
             "reply": routed["reply"],
             "task_id": task["id"],
-            "engine": routed.get("engine", "ollama"),
+            "engine": routed.get("engine", "willy"),
             "run_id": routed.get("run_id"),
             "escalation": routed.get("escalation"),
             "session_id": conversation_id,

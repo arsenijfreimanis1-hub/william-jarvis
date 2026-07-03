@@ -2,15 +2,18 @@ import asyncio
 import logging
 
 from jarvis.services import goal_runner, learning, macos, notion_sync, orchestrator, tasks
-from jarvis.services import event_log
+from jarvis.services import compute_fleet, event_log
 
 log = logging.getLogger("jarvis.worker")
 _worker_task: asyncio.Task | None = None
 _running = False
 _active_jobs = 0
-_PARALLEL = 5
 _POLL_IDLE_SEC = 0.25
 _wake = asyncio.Event()
+
+
+def _parallel_limit() -> int:
+    return compute_fleet.worker_parallel()
 
 
 def notify() -> None:
@@ -116,7 +119,7 @@ async def _process_loop() -> None:
     _running = True
     while _running:
         try:
-            queued = await tasks.list_tasks_by_status("queued", limit=_PARALLEL)
+            queued = await tasks.list_tasks_by_status("queued", limit=_parallel_limit())
             if not queued:
                 try:
                     await asyncio.wait_for(_wake.wait(), timeout=_POLL_IDLE_SEC)
@@ -150,9 +153,10 @@ def stop() -> None:
 
 
 def status() -> dict:
+    parallel = _parallel_limit()
     return {
         "running": _running,
         "task_active": _active_jobs > 0,
         "active_jobs": _active_jobs,
-        "parallel": _PARALLEL,
+        "parallel": parallel,
     }

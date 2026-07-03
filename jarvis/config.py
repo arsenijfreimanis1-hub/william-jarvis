@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     build_parallel: int = 3
+    worker_parallel: int = 6
+    terminal_parallel: int = 4
+    free_first: bool = True
     build_projects_dir: Path = Path.home() / "Projects"
     external_skills_enabled: bool = True
     mcp_enabled: bool = True

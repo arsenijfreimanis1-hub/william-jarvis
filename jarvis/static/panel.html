@@ -501,7 +501,7 @@
 
     <section class="card">
       <h2>Desktop vision</h2>
-      <p id="desktop-hint" style="color:var(--muted);font-size:0.82rem;margin:0 0 0.5rem">Screenshot → Ollama vision → approval before action</p>
+      <p id="desktop-hint" style="color:var(--muted);font-size:0.82rem;margin:0 0 0.5rem">Screenshot → Willy vision → approval before action</p>
       <button class="primary" onclick="analyzeDesktop()">Analyze screen</button>
       <div id="desktop-result" class="reply" style="min-height:1rem;margin-top:0.5rem"></div>
     </section>
@@ -583,8 +583,8 @@
       btn.classList.toggle('active', enabled);
       document.getElementById('full-access-label').textContent = enabled ? 'Full access' : 'Restricted';
       document.getElementById('desktop-hint').textContent = enabled
-        ? 'Screenshot → Ollama vision → actions run immediately (full access)'
-        : 'Screenshot → Ollama vision → approval before action';
+        ? 'Screenshot → Willy vision → actions run immediately (full access)'
+        : 'Screenshot → Willy vision → approval before action';
       const termHint = document.getElementById('terminal-hint');
       if (termHint) {
         termHint.textContent = enabled
@@ -686,7 +686,8 @@
       document.getElementById('agent-meta').textContent = `${health.agent} · :${health.port}`;
 
       const pills = [];
-      pills.push(pill(health.ollama?.ok ? 'Ollama' : 'Ollama off', health.ollama?.ok ? 'ok' : 'off'));
+      const willy = health.willy || health.ollama || {};
+      pills.push(pill(willy.ok ? 'Willy' : 'Willy offline', willy.ok ? 'ok' : 'off'));
       pills.push(pill(helper.ok ? 'Helper' : 'Helper off', helper.ok ? 'ok' : 'off'));
       pills.push(pill(health.cursor?.configured ? 'Cursor' : 'No Cursor key', health.cursor?.configured ? 'ok' : 'warn'));
       pills.push(pill(health.worker?.running ? 'Worker' : 'Worker idle', health.worker?.running ? 'ok' : ''));

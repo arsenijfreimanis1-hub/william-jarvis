@@ -32,6 +32,7 @@ from jarvis.services import (
     self_modify,
     sessions,
     skills,
+    system_map,
     tasks,
     terminal,
     vigil_metrics,
@@ -177,6 +178,7 @@ async def dashboard():
     return {
         "agent": settings.agent_name,
         "voice_ui": voice_state.voice_ui_payload(helper_status),
+        "willy": ollama_status,
         "ollama": ollama_status,
         "macos_helper": helper_status,
         "worker": worker.status(),
@@ -199,6 +201,7 @@ async def health():
     sandbox = await self_modify.status()
     return {
         "agent": settings.agent_name,
+        "willy": ollama_status,
         "ollama": ollama_status,
         "macos_helper": helper_status,
         "voice_ui": voice_state.voice_ui_payload(helper_status),
@@ -209,6 +212,7 @@ async def health():
         "worker": worker.status(),
         "security": security_status,
         "remote_control": await remote_control.status(),
+        "execution": __import__("jarvis.services.local_runtime", fromlist=["execution_profile"]).execution_profile(),
         "vigil": vigil_metrics.status(),
         "skills": {
             "external_enabled": settings.external_skills_enabled,
@@ -253,6 +257,12 @@ async def activity_frame(frame_id: str):
     if not path:
         raise HTTPException(status_code=404, detail="frame not found")
     return FileResponse(path, media_type="image/png")
+
+
+@router.get("/system/map")
+async def get_system_map():
+    """Live topology: services, flows, capabilities, and runtime state."""
+    return await system_map.build_map()
 
 
 @router.get("/vigil/status")
@@ -301,7 +311,32 @@ async def chat(req: ChatRequest):
 
 @router.get("/sessions/{session_id}/messages")
 async def session_messages(session_id: str, limit: int = 80):
+    if not await sessions.get_conversation(session_id):
+        raise HTTPException(status_code=404, detail="conversation not found")
     return {"messages": await sessions.get_history(session_id, limit=limit)}
+
+
+@router.get("/sessions")
+async def list_sessions(source: str = "web", limit: int = 50, offset: int = 0):
+    items = await sessions.list_conversations(source=source, limit=limit, offset=offset)
+    return {"sessions": items, "count": len(items)}
+
+
+class CreateSessionRequest(BaseModel):
+    source: str = "web"
+
+
+@router.post("/sessions")
+async def create_session(req: CreateSessionRequest):
+    created = await sessions.create_new(source=req.source)
+    return {"session": created}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    if not await sessions.delete_conversation(session_id):
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return {"ok": True, "id": session_id}
 
 
 @router.get("/tasks/batch/{batch_id}")

@@ -93,7 +93,7 @@ async def test_execution_path() -> dict:
         body = data["json"]
         if data["status"] != 200:
             return _result("execution_path", False, error=f"HTTP {data['status']}")
-        if body.get("engine") not in ("local", "ollama", "system", "terminal"):
+        if body.get("engine") not in ("local", "willy", "ollama", "system", "terminal"):
             return _result("execution_path", False, error=f"unexpected engine {body.get('engine')}")
         return _result("execution_path", True, detail=body.get("engine", ""))
     except Exception as exc:

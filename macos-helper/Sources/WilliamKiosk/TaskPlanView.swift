@@ -9,7 +9,7 @@ struct TaskPlanView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                EngineBadge(title: "Ollama", active: ollamaOnline)
+                EngineBadge(title: "Willy", active: ollamaOnline)
                 EngineBadge(title: "Worker", active: workerRunning)
                 if let goal {
                     Text("Goal #\(goal.id) · \(goal.status)")

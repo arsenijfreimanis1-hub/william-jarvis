@@ -20,23 +20,42 @@
         </div>
       </div>
 
-      <div class="w-voice-hero">
-        <div class="w-voice-orb standby" id="w-voice-orb">👂</div>
-        <div class="w-voice-label" id="w-voice-label">Voice standby</div>
-        <div class="w-voice-detail" id="w-voice-detail">Say "Hey Willy" on this Mac</div>
+      <div class="w-chat-toolbar">
+        <button type="button" class="w-new-chat" id="btn-new-chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+          New chat
+        </button>
+        <input type="search" class="w-chat-search" id="chat-search" placeholder="Search chats…" autocomplete="off" />
       </div>
 
-      <div class="w-section-title">Status</div>
-      <div class="w-status-pills">
-        <span class="w-pill" id="w-pill-core"><span class="w-dot"></span>Core</span>
-        <span class="w-pill" id="w-pill-voice"><span class="w-dot"></span>Voice</span>
-        <span class="w-pill" id="w-pill-phone"><span class="w-dot"></span>Phone</span>
-      </div>
+      <div class="w-section-title">Chats</div>
+      <div class="w-chat-list" id="chat-list" role="listbox" aria-label="Chat history"></div>
 
-      <div class="w-section-title">Active tasks</div>
-      <ul class="w-task-list" id="active-tasks"><li>No tasks running</li></ul>
+      <div class="w-sidebar-status" id="sidebar-status">
+        <div class="w-section-title-row">
+          <div class="w-section-title">Status</div>
+          <button type="button" id="btn-toggle-status" aria-label="Collapse status">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div class="w-status-body">
+          <div class="w-voice-hero" style="padding:0.65rem;margin-bottom:0.5rem">
+            <div class="w-voice-orb standby" id="w-voice-orb" style="width:52px;height:52px;font-size:1.35rem">👂</div>
+            <div class="w-voice-label" id="w-voice-label" style="font-size:0.8rem">Voice standby</div>
+            <div class="w-voice-detail" id="w-voice-detail" style="font-size:0.7rem">Say "Hey Willy"</div>
+          </div>
+          <div class="w-status-pills">
+            <span class="w-pill" id="w-pill-willy"><span class="w-dot"></span>Willy</span>
+            <span class="w-pill" id="w-pill-voice"><span class="w-dot"></span>Voice</span>
+            <span class="w-pill" id="w-pill-phone"><span class="w-dot"></span>Phone</span>
+          </div>
+          <div class="w-section-title">Active tasks</div>
+          <ul class="w-task-list" id="active-tasks"><li>No tasks running</li></ul>
+        </div>
+      </div>
 
       <div class="w-sidebar-foot">
+        <a href="/map">System map →</a><br />
         <a href="/admin">Developer console →</a><br />
         <a href="/minis">Phone remote →</a>
       </div>
@@ -45,10 +64,13 @@
     <main class="w-main">
       <header class="w-topbar">
         <div>
-          <h2>Chat</h2>
-          <div class="sub">Voice, tasks, and Mac control</div>
+          <h2 id="chat-title">Chat</h2>
+          <div class="sub" id="chat-subtitle">Voice, tasks, and Mac control</div>
         </div>
         <div class="w-topbar-actions">
+          <button type="button" class="w-icon-btn" id="btn-new-chat-top" aria-label="New chat" title="New chat">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
           <button type="button" class="w-icon-btn w-activity-toggle" id="btn-activity" aria-label="Live activity">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           </button>
@@ -132,9 +154,11 @@
 
   <script src="/static/voice-ui.js"></script>
   <script src="/static/william-app.js"></script>
+  <script src="/static/william-chats.js"></script>
   <script src="/static/william-activity.js"></script>
   <script>
     const UI = window.WilliamUI;
+    const Chats = window.WilliamChats;
     let sessionId = null;
     let sending = false;
 
@@ -144,6 +168,8 @@
     const typingEl = document.getElementById('typing');
     const sendBtn = document.getElementById('send-btn');
     const chipsEl = document.getElementById('quick-chips');
+    const chatTitleEl = document.getElementById('chat-title');
+    const chatSubtitleEl = document.getElementById('chat-subtitle');
 
     const QUICK_PROMPTS = [
       ['What time is it?', () => sendMessage('What time is it?')],
@@ -154,6 +180,16 @@
     ];
 
     QUICK_PROMPTS.forEach(([label, fn]) => chipsEl.appendChild(UI.chip(label, fn)));
+
+    function clearMessages() {
+      messagesEl.querySelectorAll('.w-msg-row, .w-batch').forEach((el) => el.remove());
+      welcomeEl.style.display = '';
+    }
+
+    function setChatHeader(title, preview) {
+      chatTitleEl.textContent = title || 'New chat';
+      chatSubtitleEl.textContent = preview || 'Start a conversation with William';
+    }
 
     function appendMessage(role, content, meta) {
       welcomeEl.style.display = 'none';
@@ -184,9 +220,9 @@
     }
 
     function applyHealth(health) {
-      const helper = health.macos_helper || {};
       const openclaw = health.openclaw || {};
-      updatePill('w-pill-core', health.ollama?.ok, health.ollama?.ok ? 'Online' : 'Offline');
+      const willy = health.willy || health.ollama || {};
+      updatePill('w-pill-willy', willy.ok, willy.ok ? 'Online' : 'Offline');
       updatePill('w-pill-phone', openclaw.whatsapp, openclaw.whatsapp ? 'WhatsApp' : 'Phone offline', openclaw.whatsapp);
 
       if (health.voice_ui && window.applyChatVoiceStatus) {
@@ -206,33 +242,62 @@
         document.getElementById('sheet-tasks').innerHTML = html;
       }).catch(() => {});
 
+      const worker = health.worker || {};
+      if (worker.active_jobs > 0) {
+        chatSubtitleEl.textContent = `${worker.active_jobs} worker${worker.active_jobs > 1 ? 's' : ''} active · ${worker.parallel || 6} parallel slots`;
+      }
+
       const sheetPills = document.getElementById('sheet-pills');
       if (sheetPills) {
         sheetPills.innerHTML = document.querySelector('.w-sidebar .w-status-pills').innerHTML;
       }
     }
 
-    async function loadSession() {
-      const active = await UI.fetchJson('/api/sessions/active?source=web');
-      if (!active.active) return;
-      sessionId = active.session.id;
-      const hist = await UI.fetchJson(`/api/sessions/${sessionId}/messages?limit=80`);
-      if (!hist.messages?.length) return;
-      welcomeEl.style.display = 'none';
-      for (const m of hist.messages) {
-        appendMessage(m.role, m.content, m.engine || '');
+    async function loadConversation(id) {
+      if (!id) {
+        sessionId = null;
+        clearMessages();
+        setChatHeader('New chat', 'Start a conversation with William');
+        return;
+      }
+      sessionId = id;
+      Chats.setActive(id, { notify: false });
+      clearMessages();
+      try {
+        const hist = await UI.fetchJson(`/api/sessions/${id}/messages?limit=80`);
+        const list = await UI.fetchJson('/api/sessions?source=web&limit=60');
+        const meta = (list.sessions || []).find((s) => s.id === id);
+        setChatHeader(meta?.title || 'Chat', meta?.preview || '');
+        if (!hist.messages?.length) {
+          welcomeEl.style.display = '';
+          return;
+        }
+        welcomeEl.style.display = 'none';
+        for (const m of hist.messages) {
+          appendMessage(m.role, m.content, m.engine || '');
+        }
+      } catch {
+        appendMessage('assistant', 'Could not load this chat.', 'error');
       }
     }
 
     async function sendMessage(text) {
       if (!text.trim() || sending) return;
+      if (!sessionId) {
+        try {
+          const created = await Chats.createNew();
+          sessionId = created.id;
+        } catch {
+          appendMessage('assistant', 'Could not start a new chat.', 'error');
+          return;
+        }
+      }
       sending = true;
       setTyping(true);
       if (window.WilliamActivity) WilliamActivity.emitThinking('Processing your message…');
       appendMessage('user', text.trim());
 
-      const body = { message: text.trim(), source: 'web' };
-      if (sessionId) body.session_id = sessionId;
+      const body = { message: text.trim(), source: 'web', session_id: sessionId };
 
       try {
         const res = await UI.fetchJson('/api/chat', {
@@ -241,9 +306,15 @@
           body: JSON.stringify(body),
         });
         if (res.session_id) sessionId = res.session_id;
-        const meta = [res.engine, res.intent].filter(Boolean).join(' · ');
+        Chats.setActive(sessionId, { notify: false });
+        Chats.persistActive(sessionId);
+        const meta = [UI.formatEngine(res.engine), res.intent].filter(Boolean).join(' · ');
         appendMessage('assistant', res.reply || res.error || 'No response.', meta);
         if (res.subtasks?.length > 1) appendBatchCard(res.subtasks);
+        await Chats.refresh();
+        const list = await UI.fetchJson('/api/sessions?source=web&limit=60');
+        const item = (list.sessions || []).find((s) => s.id === sessionId);
+        if (item) setChatHeader(item.title, item.preview);
       } catch {
         appendMessage('assistant', 'Could not reach William right now.', 'error');
       } finally {
@@ -276,13 +347,40 @@
     document.getElementById('tab-voice-hint').addEventListener('click', openSheet);
     backdrop.addEventListener('click', closeSheet);
 
+    document.getElementById('btn-toggle-status')?.addEventListener('click', () => {
+      document.getElementById('sidebar-status')?.classList.toggle('collapsed');
+    });
+
+    const startNewChat = () => Chats.createNew().catch(() => {});
+    document.getElementById('btn-new-chat-top')?.addEventListener('click', startNewChat);
+
+    Chats.init({
+      list: document.getElementById('chat-list'),
+      search: document.getElementById('chat-search'),
+      newBtn: document.getElementById('btn-new-chat'),
+      onSelect: (id) => loadConversation(id),
+      onNew: () => {
+        sessionId = Chats.getActiveId();
+        clearMessages();
+        setChatHeader('New chat', 'Start a conversation with William');
+        inputEl.focus();
+      },
+    });
+
     const poller = new UI.HealthPoller({
       onHealth: applyHealth,
       fastWhen: (voice) => voice && ['awaiting', 'conversation', 'busy', 'speaking'].includes(voice.state),
     });
 
-    loadSession();
-    poller.start();
+    (async () => {
+      const initial = await Chats.resolveInitialSession();
+      if (initial) {
+        await loadConversation(initial);
+      } else {
+        setChatHeader('New chat', 'Start a conversation with William');
+      }
+      poller.start();
+    })();
 
     WilliamActivity.init({
       feed: document.getElementById('activity-feed'),

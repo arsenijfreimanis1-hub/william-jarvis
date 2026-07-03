@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>William System Map</title>
+  <link rel="stylesheet" href="/static/william-ui.css" />
+  <link rel="stylesheet" href="/static/william-activity.css" />
+  <link rel="stylesheet" href="/static/system-map.css" />
+</head>
+<body>
+  <div class="sm-app">
+    <header class="sm-header">
+      <div class="sm-brand">
+        <div class="w-avatar">W</div>
+        <div>
+          <h1>System Map</h1>
+          <p id="sm-subtitle">Live topology · William Agent</p>
+        </div>
+      </div>
+      <div class="sm-header-meta">
+        <span class="sm-live"><span class="w-live-dot" id="sm-live-dot"></span> Live</span>
+        <span class="sm-ts" id="sm-ts">—</span>
+      </div>
+    </header>
+
+    <main class="sm-main">
+      <section class="sm-canvas-wrap" aria-label="System topology">
+        <svg class="sm-edges" id="sm-edges" aria-hidden="true"></svg>
+        <div class="sm-nodes" id="sm-nodes"></div>
+      </section>
+
+      <aside class="sm-sidebar">
+        <section class="sm-panel">
+          <h2>Runtime</h2>
+          <div class="sm-stats" id="sm-stats"></div>
+        </section>
+        <section class="sm-panel">
+          <h2>Active work</h2>
+          <div class="sm-tasks" id="sm-tasks"><p class="sm-empty">No queued tasks</p></div>
+        </section>
+        <section class="sm-panel">
+          <h2>Live feed</h2>
+          <div class="sm-feed" id="sm-feed"><p class="sm-empty">Waiting for events…</p></div>
+        </section>
+        <section class="sm-panel sm-cap-panel">
+          <h2>Capabilities</h2>
+          <div id="sm-caps"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+  <script src="/static/system-map.js"></script>
+</body>
+</html>

@@ -12,6 +12,7 @@ from jarvis.services import (
     grounding,
     intent,
     learning,
+    local_runtime,
     memory,
     ollama,
     orchestrator,
@@ -122,7 +123,7 @@ async def _answer_facts(
     )
     return {
         "reply": _finish(reply, voice=voice),
-        "engine": "ollama",
+        "engine": "willy",
         "intent": kind,
         "web": confidence,
     }
@@ -161,7 +162,7 @@ async def _answer_chat(
     })
     reply = await ollama.chat(system=system, messages=msgs)
     reply = grounding.enforce_grounded_reply(reply, voice=voice, had_facts=False)
-    return {"reply": _finish(reply, voice=voice), "engine": "ollama", "intent": "chat"}
+    return {"reply": _finish(reply, voice=voice), "engine": "willy", "intent": "chat"}
 
 
 async def route(
@@ -339,7 +340,7 @@ async def route(
             "approval_id": result.get("approval_id"),
         }
 
-    if not messaging and (kind == "code" or cursor_agent.should_escalate(text)):
+    if not messaging and local_runtime.should_escalate_to_cursor(text, kind=kind):
         escalated = await cursor_agent.run(f"{system}\n\nTask (be brief):\n{text}")
         if escalated.get("ok"):
             return {
@@ -352,8 +353,7 @@ async def route(
             return await _answer_chat(text, voice=voice, system=system, history=history)
 
     if kind in ("fact", "reason") or grounding.needs_grounding(text):
-        # Reasoning / planning → Cursor when configured, else web + Ollama.
-        if not messaging and cursor_agent.should_reason(text) and settings.cursor_configured():
+        if local_runtime.should_use_cursor_reasoning(text, kind=kind, messaging=messaging):
             cloud = await cursor_agent.run_reasoning(text)
             if cloud.get("ok"):
                 return {

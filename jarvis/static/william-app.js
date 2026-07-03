@@ -14,6 +14,11 @@ const WilliamUI = (() => {
       .replace(/"/g, '&quot;');
   }
 
+  function formatEngine(name) {
+    if (!name) return '';
+    return name === 'ollama' ? 'willy' : name;
+  }
+
   function formatTime(iso) {
     if (!iso) return '';
     try {
@@ -114,6 +119,7 @@ const WilliamUI = (() => {
 
   return {
     escapeHtml,
+    formatEngine,
     formatTime,
     autoGrow,
     fetchJson,

@@ -4,6 +4,7 @@ from jarvis.services import (
     executor,
     intent,
     learning,
+    local_runtime,
     ollama,
     security,
     system_control,
@@ -41,7 +42,7 @@ async def _answer_from_facts(text: str, *, action_system: str) -> tuple[str, str
         "One or two complete spoken sentences. Plain English."
     )
     reply = await ollama.chat(prompt, system=action_system)
-    return reply, "ollama"
+    return reply, "willy"
 
 
 async def execute_task(task: dict) -> dict:
@@ -93,13 +94,14 @@ async def _execute_task_inner(task: dict) -> dict:
                 }
 
         if kind == "code" or cursor_agent.should_escalate(text):
-            lessons = await learning.get_lessons_block()
-            system = capabilities.full_system(voice=True, lessons=lessons)
-            result = await cursor_agent.run(f"{system}\n\nTask (be brief):\n{text}")
-            if result.get("ok"):
-                reply = capabilities.trim_reply(result["result"], voice=True)
-                await tasks.update_task_status(task_id, "done")
-                return {"ok": True, "reply": reply, "engine": "cursor", "task_id": task_id}
+            if local_runtime.should_escalate_to_cursor(text, kind=kind):
+                lessons = await learning.get_lessons_block()
+                system = capabilities.full_system(voice=True, lessons=lessons)
+                result = await cursor_agent.run(f"{system}\n\nTask (be brief):\n{text}")
+                if result.get("ok"):
+                    reply = capabilities.trim_reply(result["result"], voice=True)
+                    await tasks.update_task_status(task_id, "done")
+                    return {"ok": True, "reply": reply, "engine": "cursor", "task_id": task_id}
 
         lessons = await learning.get_lessons_block()
         action_system = capabilities.full_system(voice=True, lessons=lessons)

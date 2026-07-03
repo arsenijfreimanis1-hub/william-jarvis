@@ -87,7 +87,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     StatusPill(label: "Voice", on: model.helperOnline)
-                    StatusPill(label: "LLM", on: model.ollamaOnline)
+                    StatusPill(label: "Willy", on: model.ollamaOnline)
                     StatusPill(label: "Worker", on: model.workerRunning)
                 }
                 if let err = model.lastError {

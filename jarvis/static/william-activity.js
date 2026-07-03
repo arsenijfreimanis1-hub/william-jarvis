@@ -27,6 +27,16 @@ const WilliamActivity = (() => {
       .replace(/>/g, '&gt;');
   }
 
+  function formatEngine(name) {
+    if (!name) return '';
+    if (name === 'ollama') return 'willy';
+    return name;
+  }
+
+  function engineLabel(event) {
+    return event.engine ? ` · ${formatEngine(event.engine)}` : '';
+  }
+
   function formatTime(ts) {
     if (!ts) return '';
     try {
@@ -69,7 +79,7 @@ const WilliamActivity = (() => {
       shotHtml = `<div class="w-act-shot"><img src="${escapeHtml(event.image_url)}" alt="Screen capture" loading="lazy" /></div>`;
     }
 
-    const engine = event.engine ? ` · ${event.engine}` : '';
+    const engine = engineLabel(event);
     card.innerHTML = `
       <div class="w-act-top">
         <div class="w-act-icon">${iconFor(event.kind)}</div>
@@ -153,7 +163,7 @@ const WilliamActivity = (() => {
   }
 
   function emitThinking(label) {
-    prependCard({ kind: 'agent_step', title: label || 'Thinking…', status: 'running', engine: 'ollama' });
+    prependCard({ kind: 'agent_step', title: label || 'Thinking…', status: 'running', engine: 'willy' });
   }
 
   return { init, prependCard, emitThinking };

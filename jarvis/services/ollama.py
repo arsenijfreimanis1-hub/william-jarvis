@@ -9,9 +9,9 @@ async def health() -> dict:
             resp = await client.get(f"{settings.ollama_base_url}/api/tags")
             resp.raise_for_status()
             models = [m["name"] for m in resp.json().get("models", [])]
-            return {"ok": True, "models": models, "default": settings.ollama_model}
+            return {"ok": True, "models": models, "default": settings.ollama_model, "name": "Willy", "local": True}
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": str(exc), "name": "Willy", "local": True}
 
 
 async def chat(

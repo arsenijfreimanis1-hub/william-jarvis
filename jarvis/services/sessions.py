@@ -197,3 +197,166 @@ async def get_active(source: str | None = None) -> dict | None:
                 )
             ).fetchone()
         return dict(row) if row else None
+
+
+def _clip(text: str, max_len: int) -> str:
+    cleaned = re.sub(r"\s+", " ", (text or "").strip())
+    if not cleaned:
+        return ""
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[: max_len - 1].rstrip() + "…"
+
+
+def _title_from_message(text: str) -> str:
+    title = _clip(text, 52)
+    return title or "New chat"
+
+
+def _preview_from_message(text: str, *, role: str = "") -> str:
+    preview = _clip(text, 88)
+    if not preview:
+        return "No messages yet"
+    if role == "assistant":
+        return preview
+    if role == "user":
+        return f"You: {preview}"
+    return preview
+
+
+async def get_conversation(conversation_id: str) -> dict | None:
+    await ensure_tables()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        row = await (
+            await db.execute("SELECT * FROM conversations WHERE id = ?", (conversation_id,))
+        ).fetchone()
+        return dict(row) if row else None
+
+
+async def create_new(*, source: str = "web") -> dict:
+    """Start a fresh conversation (no auto-merge with recent threads)."""
+    await ensure_tables()
+    new_id = str(uuid.uuid4())
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO conversations (id, source, topic) VALUES (?, ?, '')",
+            (new_id, source),
+        )
+        await db.commit()
+    return {
+        "id": new_id,
+        "source": source,
+        "topic": "",
+        "title": "New chat",
+        "preview": "No messages yet",
+        "message_count": 0,
+    }
+
+
+async def list_conversations(
+    *,
+    source: str | None = "web",
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    await ensure_tables()
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if source:
+            cursor = await db.execute(
+                """
+                SELECT
+                    c.id,
+                    c.source,
+                    c.topic,
+                    c.created_at,
+                    c.last_active_at,
+                    (
+                        SELECT content FROM messages
+                        WHERE conversation_id = c.id AND role = 'user'
+                        ORDER BY id ASC LIMIT 1
+                    ) AS first_user,
+                    (
+                        SELECT content FROM messages
+                        WHERE conversation_id = c.id
+                        ORDER BY id DESC LIMIT 1
+                    ) AS last_message,
+                    (
+                        SELECT role FROM messages
+                        WHERE conversation_id = c.id
+                        ORDER BY id DESC LIMIT 1
+                    ) AS last_role,
+                    (
+                        SELECT COUNT(*) FROM messages WHERE conversation_id = c.id
+                    ) AS message_count
+                FROM conversations c
+                WHERE c.source = ?
+                ORDER BY c.last_active_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (source, limit, offset),
+            )
+        else:
+            cursor = await db.execute(
+                """
+                SELECT
+                    c.id,
+                    c.source,
+                    c.topic,
+                    c.created_at,
+                    c.last_active_at,
+                    (
+                        SELECT content FROM messages
+                        WHERE conversation_id = c.id AND role = 'user'
+                        ORDER BY id ASC LIMIT 1
+                    ) AS first_user,
+                    (
+                        SELECT content FROM messages
+                        WHERE conversation_id = c.id
+                        ORDER BY id DESC LIMIT 1
+                    ) AS last_message,
+                    (
+                        SELECT role FROM messages
+                        WHERE conversation_id = c.id
+                        ORDER BY id DESC LIMIT 1
+                    ) AS last_role,
+                    (
+                        SELECT COUNT(*) FROM messages WHERE conversation_id = c.id
+                    ) AS message_count
+                FROM conversations c
+                ORDER BY c.last_active_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            )
+        rows = await cursor.fetchall()
+
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        item["title"] = _title_from_message(item.pop("first_user") or "")
+        item["preview"] = _preview_from_message(
+            item.get("last_message") or "",
+            role=item.get("last_role") or "",
+        )
+        item.pop("last_message", None)
+        item.pop("last_role", None)
+        out.append(item)
+    return out
+
+
+async def delete_conversation(conversation_id: str) -> bool:
+    await ensure_tables()
+    async with aiosqlite.connect(DB_PATH) as db:
+        row = await (
+            await db.execute("SELECT id FROM conversations WHERE id = ?", (conversation_id,))
+        ).fetchone()
+        if not row:
+            return False
+        await db.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+        await db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+        await db.commit()
+    return True

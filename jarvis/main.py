@@ -59,3 +59,8 @@ async def admin_panel():
 @app.get("/minis", response_class=HTMLResponse)
 async def minis_panel():
     return FileResponse(STATIC / "minis.html")
+
+
+@app.get("/map", response_class=HTMLResponse)
+async def system_map_page():
+    return FileResponse(STATIC / "system-map.html")

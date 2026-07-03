@@ -164,7 +164,7 @@ final class VoiceStateViewModel {
 
     private func buildStatusLine(dash: DashboardResponse) -> String {
         var parts: [String] = [dash.agent ?? "William"]
-        parts.append(ollamaOnline ? "LLM online" : "LLM offline")
+        parts.append(ollamaOnline ? "Willy online" : "Willy offline")
         parts.append(helperOnline ? "Voice online" : "Voice offline")
         if workerRunning { parts.append("Worker active") }
         if let n = dash.approval_count, n > 0 { parts.append("\(n) approvals") }

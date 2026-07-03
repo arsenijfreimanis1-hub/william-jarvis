@@ -239,3 +239,51 @@ async def execute(text: str, *, full_access: bool = False, voice: bool = False) 
     result = await run_command(command, full_access=full_access)
     result["reply"] = _reply(result, voice=voice)
     return result
+
+
+async def execute_parallel(
+    texts: list[str],
+    *,
+    full_access: bool = False,
+    voice: bool = False,
+    max_parallel: int | None = None,
+) -> list[dict]:
+    """Run multiple shell commands concurrently (capped for safety)."""
+    from jarvis.services import activity_stream, compute_fleet
+
+    if not texts:
+        return []
+
+    cap = max_parallel or compute_fleet.terminal_parallel()
+    sem = asyncio.Semaphore(cap)
+
+    async def _one(text: str) -> dict:
+        async with sem:
+            return await execute(text, full_access=full_access, voice=voice)
+
+    if len(texts) > 1:
+        await activity_stream.emit(
+            "task",
+            f"Running {len(texts)} terminal jobs",
+            detail=f"Up to {cap} parallel shells",
+            status="running",
+            engine="terminal",
+        )
+
+    results = await asyncio.gather(*[_one(t) for t in texts], return_exceptions=True)
+    out: list[dict] = []
+    for item in results:
+        if isinstance(item, Exception):
+            out.append({"ok": False, "error": str(item), "reply": str(item)})
+        else:
+            out.append(item)
+
+    if len(texts) > 1:
+        ok = sum(1 for r in out if r.get("ok"))
+        await activity_stream.emit(
+            "task",
+            f"Terminal batch done ({ok}/{len(texts)})",
+            status="done" if ok == len(texts) else "error",
+            engine="terminal",
+        )
+    return out

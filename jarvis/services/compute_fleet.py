@@ -18,6 +18,15 @@ def local_worker_count() -> int:
     return max(3, int(getattr(settings, "build_parallel", 3)))
 
 
+def worker_parallel() -> int:
+    """Background task + terminal worker slots."""
+    return max(3, int(getattr(settings, "worker_parallel", 6)))
+
+
+def terminal_parallel() -> int:
+    return max(2, int(getattr(settings, "terminal_parallel", 4)))
+
+
 def cloud_worker_count() -> int:
     return max(3, int(getattr(settings, "compute_cloud_workers", 3)))
 
@@ -100,11 +109,16 @@ async def dispatch_slice(
 
 
 async def fleet_status() -> dict[str, Any]:
+    from jarvis.services import local_runtime
+
     return {
         "runtime": resolve_runtime(),
         "local_workers": local_worker_count(),
+        "worker_parallel": worker_parallel(),
+        "terminal_parallel": terminal_parallel(),
         "cloud_workers": cloud_worker_count(),
         "parallel": effective_parallel(),
+        "execution": local_runtime.execution_profile(),
         "github_configured": github_sync.configured(),
         "hub_repo": github_sync.hub_repo_url() if github_sync.configured() else None,
     }
