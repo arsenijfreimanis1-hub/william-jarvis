@@ -1,43 +1,38 @@
-# William / Jarvis
+# William / Jarvis Fleet
 
-Personal voice agent and Mac mini automation stack: FastAPI backend (`jarvis/`), macOS helper, launchd services, and local tooling.
-
-**Project path:** `/Users/willy/jarvis-core`
-
-## Quick start
-
-```bash
-cd /Users/willy/jarvis-core
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-./scripts/setup-all.sh   # permissions, helper, launchd — see script for flags
-```
-
-Agent API default: `http://127.0.0.1:8787` · Helper: `http://127.0.0.1:8788`
+Private home for the always-on Mac Mini agent and LAN peers (MacBook planner, Windows PC tester).
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `jarvis/` | William agent (FastAPI, services, static UI) |
-| `macos-helper/` | Swift helper (wake word, screen, input) |
-| `openclaw-bridge/` | OpenClaw gateway bridge |
-| `launchd/` | plist templates |
-| `scripts/` | Install, voice, docker stack, backups |
-| `docs/SYSTEMS_MAP.md` | Architecture map |
-| `docs/MEMORY_AND_SERVER.md` | Memory and server notes |
+| [`jarvis/`](jarvis/) | FastAPI control plane (William) |
+| [`macos-helper/`](macos-helper/) | Swift helper / kiosk (Mini) |
+| [`fleet-worker/`](fleet-worker/) | Thin peer worker (MacBook + Windows) |
+| [`devices/`](devices/) | Per-machine Cursor onboarding |
+| [`docs/FLEET.md`](docs/FLEET.md) | LAN fleet how-to |
+| [`docs/SYSTEMS_MAP.md`](docs/SYSTEMS_MAP.md) | Full architecture |
+| [`scripts/`](scripts/) | Install, wake-PC, seed agents |
+| [`openclaw-bridge/`](openclaw-bridge/) | WhatsApp bridge |
 
-## Docker (optional)
+## Quick start (Mini — control plane)
 
 ```bash
-docker compose --profile redis up -d    # optional Redis
-docker compose --profile backup up -d   # nightly jarvis.db copy to backups/
+cd jarvis-core   # or clone root of this repo
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+cp .env.example .env   # fill CURSOR / fleet keys
+./scripts/setup-all.sh
+./scripts/seed-fleet-agents.py
 ```
 
-## Related project
+API: `http://127.0.0.1:8787` · Fleet: `GET /api/fleet/status`
 
-**Spliit / Rekentafel** (restaurant bill-splitting MVP) lives separately at `/Users/willy/Projects/spliit` — not in this repo.
+## Peers (same Wi‑Fi)
 
-## Config
+1. Clone this **private** repo on MacBook / Windows.
+2. Copy [`fleet-worker/.env.peer.example`](fleet-worker/.env.peer.example) → `fleet-worker/.env` and set `JARVIS_FLEET_TOKEN` (from Mini `.env`).
+3. MacBook: `./fleet-worker/run-macbook.sh`
+4. Windows: `powershell -ExecutionPolicy Bypass -File .\fleet-worker\run-windows.ps1`
 
-Copy `.env.example` to `.env`. Keys use `JARVIS_` prefix where applicable (see `jarvis/config.py`).
+Do **not** commit `.env` files. Access: same GitHub account on all three devices, or invite collaborators to this private repo.

@@ -2,6 +2,8 @@
 .env.local
 .env.*.local
 !.env.example
+fleet-worker/.env
+fleet-worker/.env.peer
 .venv/
 __pycache__/
 *.pyc
@@ -18,9 +20,11 @@ coverage/
 macos-helper/JarvisHelper.app/
 macos-helper/WilliamKiosk.app/
 macos-helper/WilliamDesktop.app/
+macos-helper/WilliamSystemMap.app/
 macos-helper/.build/
 .voice-venv/
 .test-venv/
+.pytest_cache/
 backups/
 models/
 apps/staff-web/.env.production

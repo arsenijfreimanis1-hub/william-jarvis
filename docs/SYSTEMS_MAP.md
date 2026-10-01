@@ -419,3 +419,35 @@ Privacy: excluded apps (password managers, messaging, mail); screenshots auto-de
 
 - [`README.md`](../README.md) — quick start and routing table
 - [`docs/MEMORY_AND_SERVER.md`](MEMORY_AND_SERVER.md) — logging, sleep mode, Docker, Cloudflare tunnel
+- [`docs/FLEET.md`](FLEET.md) — LAN fleet (Mac Mini / MacBook / Windows PC), WoL, peer worker
+
+---
+
+## LAN fleet (same WiFi)
+
+Mac Mini is the always-on control plane. MacBook is the preferred planner; Windows PC is the preferred tester (RTX). Peers register and heartbeat over LAN; jobs use tags (`plan`, `test`, `integrate`, `gpu`, `shell`, `general`).
+
+```mermaid
+flowchart LR
+  User[You] --> Mini[MacMini_8787]
+  Mini -->|plan_if_online| MacBook[MacBook_worker]
+  Mini -->|test_if_online| PC[WindowsPC_worker]
+  Mini -->|fallback_plan| Mini
+  Mini -->|WoL_if_asleep| PC
+  MacBook -->|register_claim_result| Mini
+  PC -->|register_claim_result| Mini
+```
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/fleet/status` | Nodes + job counts + cloud/local runtime |
+| `POST /api/fleet/register` | Peer join |
+| `POST /api/fleet/heartbeat` | Presence (`online` / `sleeping`) |
+| `POST /api/fleet/enqueue` | Queue a tagged job with role routing |
+| `POST /api/fleet/claim` | Peer lease a job |
+| `POST /api/fleet/result` | Peer report outcome |
+| `POST /api/fleet/wake-pc` | Wake-on-LAN to Windows PC |
+
+Heartbeat timeout marks nodes `offline` without failing the control plane. Test/GPU jobs queue while the PC cools or is powered off; if status is `sleeping`, Mini can send WoL first.
+
+Peer process: [`fleet-worker/`](../fleet-worker/). Details: [`docs/FLEET.md`](FLEET.md).

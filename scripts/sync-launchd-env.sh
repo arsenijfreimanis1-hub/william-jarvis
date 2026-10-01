@@ -29,6 +29,8 @@ read_env() {
   echo "$default"
 }
 
+JARVIS_HOST="$(read_env JARVIS_HOST "127.0.0.1")"
+JARVIS_PORT="$(read_env JARVIS_PORT "8787")"
 OLLAMA_MODEL="$(read_env JARVIS_OLLAMA_MODEL "$(read_env OLLAMA_MODEL llama3.1:8b)")"
 CURSOR_KEY="$(read_env CURSOR_API_KEY "")"
 JARVIS_CURSOR_KEY="$(read_env JARVIS_CURSOR_API_KEY "")"
@@ -64,6 +66,27 @@ fi
 /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:JARVIS_LOGS_DIR string $JARVIS_LOGS_DIR" "$PLIST_DST"
 /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables:JARVIS_WORKSPACE_DIR" "$PLIST_DST" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:JARVIS_WORKSPACE_DIR string $JARVIS_ROOT" "$PLIST_DST"
+
+# LAN fleet token + Mini host (peers authenticate with this)
+FLEET_TOKEN="$(read_env JARVIS_FLEET_TOKEN "")"
+FLEET_MINI_HOST="$(read_env JARVIS_FLEET_MINI_LAN_HOST "127.0.0.1")"
+FLEET_PC_MAC="$(read_env JARVIS_FLEET_PC_MAC "")"
+for var in JARVIS_FLEET_TOKEN JARVIS_FLEET_MINI_LAN_HOST JARVIS_FLEET_PC_MAC JARVIS_FLEET_HEARTBEAT_TIMEOUT_SECONDS; do
+  /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables:$var" "$PLIST_DST" 2>/dev/null || true
+done
+if [[ -n "$FLEET_TOKEN" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:JARVIS_FLEET_TOKEN string $FLEET_TOKEN" "$PLIST_DST"
+fi
+/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:JARVIS_FLEET_MINI_LAN_HOST string $FLEET_MINI_HOST" "$PLIST_DST"
+if [[ -n "$FLEET_PC_MAC" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:JARVIS_FLEET_PC_MAC string $FLEET_PC_MAC" "$PLIST_DST"
+fi
+HB="$(read_env JARVIS_FLEET_HEARTBEAT_TIMEOUT_SECONDS "90")"
+/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:JARVIS_FLEET_HEARTBEAT_TIMEOUT_SECONDS string $HB" "$PLIST_DST"
+
+# uvicorn --host / --port in ProgramArguments (indices 5 and 7)
+/usr/libexec/PlistBuddy -c "Set :ProgramArguments:5 $JARVIS_HOST" "$PLIST_DST"
+/usr/libexec/PlistBuddy -c "Set :ProgramArguments:7 $JARVIS_PORT" "$PLIST_DST"
 
 /usr/libexec/PlistBuddy -c "Set :StandardOutPath $JARVIS_LOGS_DIR/jarvis.log" "$PLIST_DST"
 /usr/libexec/PlistBuddy -c "Set :StandardErrorPath $JARVIS_LOGS_DIR/jarvis.err.log" "$PLIST_DST"

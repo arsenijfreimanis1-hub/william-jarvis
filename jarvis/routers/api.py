@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,10 @@ from jarvis.services import (
     cursor_trace,
     desktop,
     event_log,
+    fleet_auth,
+    fleet_power,
+    fleet_registry,
+    fleet_router,
     goal_runner,
     improve_run,
     learning,
@@ -38,6 +42,13 @@ from jarvis.services import (
     vigil_metrics,
     voice_state,
     worker,
+)
+from jarvis.services.fleet_types import (
+    FleetClaimRequest,
+    FleetEnqueueRequest,
+    FleetHeartbeatRequest,
+    FleetRegisterRequest,
+    FleetResultRequest,
 )
 
 router = APIRouter(prefix="/api")
@@ -985,6 +996,119 @@ async def minis_update_ui(file: UploadFile = File(...)):
 @router.post("/minis/update/build")
 async def minis_build_helper():
     return await minis_ops.build_helper_from_source()
+
+
+@router.get("/fleet/status")
+async def get_fleet_status():
+    from jarvis.services import compute_fleet
+
+    return await compute_fleet.fleet_status()
+
+
+def _fleet_token(
+    req_token: str | None = None,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+) -> None:
+    fleet_auth.verify_fleet_token(
+        fleet_auth.token_from_request(body_token=req_token, header_token=x_jarvis_fleet_token)
+    )
+
+
+@router.post("/fleet/register")
+async def fleet_register(
+    req: FleetRegisterRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    node = await fleet_registry.register_node(req)
+    return {"ok": True, "node": node.model_dump()}
+
+
+@router.post("/fleet/heartbeat")
+async def fleet_heartbeat(
+    req: FleetHeartbeatRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    node = await fleet_registry.heartbeat(req)
+    if not node:
+        raise HTTPException(status_code=404, detail="node not registered")
+    return {"ok": True, "node": node.model_dump()}
+
+
+@router.post("/fleet/enqueue")
+async def fleet_enqueue(
+    req: FleetEnqueueRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    return await fleet_router.enqueue_routed(
+        title=req.title,
+        tag=req.tag,
+        body=req.body,
+        command=req.command,
+        preferred_role=req.preferred_role,
+        required_capabilities=req.required_capabilities,
+    )
+
+
+@router.post("/fleet/claim")
+async def fleet_claim(
+    req: FleetClaimRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    node = await fleet_registry.get_node_by_name(req.name)
+    if not node:
+        raise HTTPException(status_code=404, detail="node not registered")
+    job = await fleet_registry.claim_job(node=node, tags=req.tags, lease_seconds=req.lease_seconds)
+    return {"ok": True, "job": job.model_dump() if job else None}
+
+
+@router.post("/fleet/result")
+async def fleet_result(
+    req: FleetResultRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    node = await fleet_registry.get_node_by_name(req.name)
+    if not node:
+        raise HTTPException(status_code=404, detail="node not registered")
+    job = await fleet_registry.complete_job(
+        job_id=req.job_id,
+        node=node,
+        ok=req.ok,
+        output=req.output,
+        error=req.error,
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found or not owned by node")
+    return {"ok": True, "job": job.model_dump()}
+
+
+@router.get("/fleet/jobs")
+async def fleet_jobs(status: str | None = None, limit: int = 50):
+    jobs = await fleet_registry.list_jobs(status=status, limit=min(limit, 200))
+    return {"jobs": [j.model_dump() for j in jobs]}
+
+
+@router.post("/fleet/wake/{node_name}")
+async def fleet_wake_node(
+    node_name: str,
+    token: str | None = None,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(token, x_jarvis_fleet_token)
+    return await fleet_power.wake_node_by_name(node_name)
+
+
+@router.post("/fleet/wake-pc")
+async def fleet_wake_pc(
+    token: str | None = None,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(token, x_jarvis_fleet_token)
+    return await fleet_power.wake_pc()
 
 
 @router.websocket("/remote/ws")

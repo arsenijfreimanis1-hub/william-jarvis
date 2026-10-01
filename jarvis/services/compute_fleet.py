@@ -108,9 +108,65 @@ async def dispatch_slice(
         return {"ok": False, "error": "local slice timed out", "runtime": "local", "slice_id": slice_id}
 
 
-async def fleet_status() -> dict[str, Any]:
-    from jarvis.services import local_runtime
+async def ensure_seed_nodes() -> list[dict[str, Any]]:
+    """Upsert the three configured LAN machines (Mini always present)."""
+    from jarvis.services import fleet_registry
+    from jarvis.services.fleet_types import FleetNodeSpec
 
+    seeds = [
+        FleetNodeSpec(
+            name=settings.fleet_mini_name or "Mac Mini",
+            role="control",
+            os="macos",
+            capabilities=["control", "shell", "ollama", "cursor", "planner"],
+            lan_host=settings.fleet_mini_lan_host or "127.0.0.1",
+        ),
+        FleetNodeSpec(
+            name=settings.fleet_macbook_name or "MacBook",
+            role="planner",
+            os="macos",
+            capabilities=["planner", "shell", "ollama", "cursor"],
+            lan_host=settings.fleet_macbook_lan_host or None,
+        ),
+        FleetNodeSpec(
+            name=settings.fleet_pc_name or "Windows PC",
+            role="tester",
+            os="windows",
+            capabilities=["tester", "shell", "gpu", "dual_monitor"],
+            lan_host=settings.fleet_pc_lan_host or None,
+            mac_address=settings.fleet_pc_mac or None,
+        ),
+    ]
+    out: list[dict[str, Any]] = []
+    for spec in seeds:
+        # Mini is local control plane — mark online without a peer worker.
+        status = "online" if spec.role == "control" else "configured"
+        if status == "online":
+            from jarvis.services.fleet_types import FleetRegisterRequest
+
+            node = await fleet_registry.register_node(
+                FleetRegisterRequest(
+                    name=spec.name,
+                    role=spec.role,
+                    os=spec.os,
+                    capabilities=spec.capabilities,
+                    lan_host=spec.lan_host,
+                    mac_address=spec.mac_address,
+                )
+            )
+        else:
+            node = await fleet_registry.upsert_configured_node(spec, status=status)
+        out.append(node.model_dump())
+    return out
+
+
+async def fleet_status() -> dict[str, Any]:
+    from jarvis.services import fleet_auth, fleet_registry, local_runtime
+
+    await ensure_seed_nodes()
+    lan = await fleet_registry.fleet_snapshot(
+        heartbeat_timeout_seconds=int(settings.fleet_heartbeat_timeout_seconds)
+    )
     return {
         "runtime": resolve_runtime(),
         "local_workers": local_worker_count(),
@@ -121,4 +177,10 @@ async def fleet_status() -> dict[str, Any]:
         "execution": local_runtime.execution_profile(),
         "github_configured": github_sync.configured(),
         "hub_repo": github_sync.hub_repo_url() if github_sync.configured() else None,
+        "lan": {
+            **lan,
+            "token_configured": fleet_auth.fleet_token_configured(),
+            "heartbeat_timeout_seconds": int(settings.fleet_heartbeat_timeout_seconds),
+            "bind_host": settings.host,
+        },
     }

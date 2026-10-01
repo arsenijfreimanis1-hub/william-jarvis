@@ -38,6 +38,8 @@ class AgentRuntimeConfig(BaseModel):
     model: str | None = None
     workspace_dir: str | None = None
     allowed_tools: list[str] = Field(default_factory=lambda: ["cursor_agent.run"])
+    preferred_role: Literal["control", "planner", "tester", "general"] | None = None
+    preferred_capabilities: list[str] = Field(default_factory=list)
 
     @field_validator("allowed_tools")
     @classmethod
@@ -55,6 +57,19 @@ class AgentRuntimeConfig(BaseModel):
                 seen.add(tool)
         if "cursor_agent.run" not in seen:
             cleaned.insert(0, "cursor_agent.run")
+        return cleaned
+
+    @field_validator("preferred_capabilities")
+    @classmethod
+    def validate_preferred_capabilities(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            cap = str(item or "").strip().lower()
+            if not cap or cap in seen:
+                continue
+            cleaned.append(cap)
+            seen.add(cap)
         return cleaned
 
 

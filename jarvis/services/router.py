@@ -27,6 +27,11 @@ from jarvis.services import (
 
 TIME_QUERY = re.compile(r"\b(what time|time is it|current time|what's the time)\b", re.I)
 DATE_QUERY = re.compile(r"\b(what day|what date|what's the date|today's date)\b", re.I)
+FLEET_STATUS_HINTS = re.compile(
+    r"\b(fleet status|are (?:the )?(?:machines|nodes|peers) online|"
+    r"is (?:the )?(?:pc|macbook|mac mini) online|wake(?: the)? pc)\b",
+    re.I,
+)
 WAKE_ONLY = re.compile(
     r"^(hey\s+)?(willy|willie|william|will|woody|wil)\s*[?.!]*$",
     re.I,
@@ -177,6 +182,19 @@ async def route(
     local = await executor.try_local_execute(text, voice=voice)
     if local:
         return local
+
+    if FLEET_STATUS_HINTS.search(text):
+        from jarvis.services import fleet_power, fleet_router
+
+        if re.search(r"\bwake(?: the)? pc\b", text, re.I):
+            result = await fleet_power.wake_pc()
+            if result.get("ok"):
+                reply = "Sent Wake-on-LAN to the Windows PC. Waiting for heartbeat."
+            else:
+                reply = f"Could not wake the PC: {result.get('error', 'unknown error')}"
+            return {"reply": _finish(reply, voice=voice), "engine": "fleet", "intent": "fleet"}
+        summary = await fleet_router.status_reply()
+        return {"reply": _finish(summary, voice=voice), "engine": "fleet", "intent": "fleet"}
 
     agent_invocation = await agent_runtime.resolve_invocation(text)
     if agent_invocation:

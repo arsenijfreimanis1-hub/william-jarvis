@@ -47,6 +47,7 @@ async def init_db() -> None:
     from jarvis.services.people import ensure_people_table
     from jarvis.services.security import ensure_table
     from jarvis.services.sessions import ensure_tables
+    from jarvis.services.fleet_registry import ensure_tables as ensure_fleet_tables
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -76,3 +77,7 @@ async def init_db() -> None:
     await ensure_cursor_trace_tables()
     await ensure_people_table()
     await ensure_table()
+    await ensure_fleet_tables()
+    from jarvis.services import compute_fleet
+
+    await compute_fleet.ensure_seed_nodes()

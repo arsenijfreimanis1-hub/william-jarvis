@@ -111,6 +111,18 @@ class Settings(BaseSettings):
     cursor_runtime: str = "local"
     compute_cloud_workers: int = 3
     github_sync_interval_hours: int = 2
+    # LAN fleet (same WiFi) — Mini is control plane; peers heartbeat over LAN
+    fleet_token: str = ""
+    fleet_heartbeat_timeout_seconds: int = 90
+    fleet_mini_name: str = "Mac Mini"
+    fleet_mini_lan_host: str = "127.0.0.1"
+    fleet_macbook_name: str = "MacBook"
+    fleet_macbook_lan_host: str = ""
+    fleet_pc_name: str = "Windows PC"
+    fleet_pc_lan_host: str = ""
+    fleet_pc_mac: str = ""
+    fleet_wol_broadcast: str = "255.255.255.255"
+    fleet_wol_port: int = 9
 
     def resolved_vigil_api_key(self) -> str:
         for candidate in (
