@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -1407,6 +1409,210 @@ async def icons_apply_all():
     from jarvis.services import app_icons
 
     return app_icons.apply_everywhere()
+
+
+# --------------------------------------------------------------------------- Orchestra: spans, journal, system, link
+
+
+class JournalWrite(BaseModel):
+    kind: str
+    summary: str
+    detail: str | None = None
+    agent: str | None = None
+    severity: int = 1
+
+
+class GovernorAction(BaseModel):
+    action: str
+    target: int | None = None
+
+
+class GovernorPolicy(BaseModel):
+    updates: dict
+
+
+class OfferStatus(BaseModel):
+    status: str
+
+
+class SelfHealRequest(BaseModel):
+    apply: bool = True
+    run_tests: bool = False
+
+
+@router.get("/spans")
+async def spans_list(trace_id: str | None = None, agent: str | None = None, since: str | None = None, limit: int = 200):
+    from jarvis.services import spans
+
+    return {"spans": await spans.list_spans(trace_id=trace_id, agent=agent, since=since, limit=limit),
+            "active": await spans.active()}
+
+
+@router.get("/spans/trace/{trace_id}")
+async def spans_trace(trace_id: str):
+    from jarvis.services import spans
+
+    return await spans.trace_tree(trace_id)
+
+
+@router.get("/tokens")
+async def tokens_overview(days: int = 7):
+    from jarvis.services import spans
+    from jarvis.services.providers import usage
+
+    return {"spans": await spans.token_rollup(days=days), "ledger": await usage.by_agent_device(days=days)}
+
+
+@router.get("/journal")
+async def journal_list(kind: str | None = None, agent: str | None = None, device: str | None = None,
+                       unresolved: bool = False, since: str | None = None, limit: int = 100):
+    from jarvis.services import journal
+
+    return {"entries": await journal.list_entries(kind=kind, agent=agent, device=device, unresolved_only=unresolved,
+                                                  since=since, limit=limit),
+            "stats": await journal.stats(days=7)}
+
+
+@router.post("/journal")
+async def journal_write(req: JournalWrite):
+    from jarvis.services import journal
+
+    return await journal.write(req.kind, req.summary, detail=req.detail, agent=req.agent, severity=req.severity,
+                               source="api")
+
+
+@router.post("/journal/{entry_id}/resolve")
+async def journal_resolve(entry_id: int):
+    from jarvis.services import journal
+
+    return {"ok": await journal.resolve(entry_id, by="user")}
+
+
+@router.get("/system/live")
+async def system_live():
+    from jarvis.services import link, resource_governor
+
+    data = resource_governor.live()
+    data["peers"] = [{"role": p["role"], "hostname": p["hostname"], "system": p["system"],
+                      "last_heartbeat": p["last_heartbeat"]} for p in link.status()["peers"]]
+    return data
+
+
+@router.post("/system/sample")
+async def system_sample_now():
+    from jarvis.services import resource_governor
+
+    return await resource_governor.tick()
+
+
+@router.post("/system/governor")
+async def system_governor_action(req: GovernorAction):
+    from jarvis.services import resource_governor
+
+    return await resource_governor.override(req.action, target=req.target, by="studio")
+
+
+@router.post("/system/governor/policy")
+async def system_governor_policy(req: GovernorPolicy):
+    from jarvis.services import resource_governor
+
+    return {"policy": resource_governor.set_policy(req.updates)}
+
+
+@router.get("/brain")
+async def brain_info():
+    from jarvis.brain import persona
+
+    return persona.describe()
+
+
+@router.get("/agent-graph")
+async def agents_graph():
+    return await agent_runtime.dependency_graph()
+
+
+@router.get("/link/status")
+async def link_status():
+    from jarvis.services import link
+
+    return link.status()
+
+
+class LinkPrompt(BaseModel):
+    text: str
+    session_id: str | None = None
+    voice: bool = False
+
+
+@router.post("/link/prompt")
+async def link_prompt(req: LinkPrompt):
+    """Forward a prompt to the connected peer (MacBook → Mini)."""
+    from jarvis.services import link
+
+    return await link.send_prompt(req.text, session_id=req.session_id, voice=req.voice)
+
+
+@router.websocket("/ws/link")
+async def link_ws(websocket: WebSocket):
+    from jarvis.services import link
+
+    token = websocket.headers.get("x-jarvis-fleet-token") or websocket.query_params.get("token")
+    try:
+        fleet_auth.verify_fleet_token(token)
+    except HTTPException:
+        await websocket.close(code=1008, reason="invalid fleet token")
+        return
+    await websocket.accept()
+    client = websocket.client
+    await link.serve(websocket, remote=f"{client.host}:{client.port}" if client else "unknown")
+
+
+@router.post("/selfheal")
+async def selfheal_run(req: SelfHealRequest | None = None):
+    from jarvis.services import selfheal
+
+    req = req or SelfHealRequest()
+    return await selfheal.run(apply=req.apply, run_tests=req.run_tests, by="api")
+
+
+@router.get("/selfheal")
+async def selfheal_status():
+    from jarvis.services import selfheal
+
+    return {"last": selfheal.last_report(), "diagnosis": await selfheal.diagnose()}
+
+
+@router.get("/providers/offers")
+async def provider_offers(status: str | None = None, limit: int = 100):
+    from jarvis.services.providers import hunter
+
+    return {"offers": await hunter.list_offers(status=status, limit=limit)}
+
+
+@router.post("/providers/offers/hunt")
+async def provider_offers_hunt():
+    from jarvis.services.providers import hunter
+
+    return await hunter.hunt(notify=True)
+
+
+@router.post("/providers/offers/{offer_id}")
+async def provider_offer_status(offer_id: int, req: OfferStatus):
+    from jarvis.services.providers import hunter
+
+    return {"ok": await hunter.set_offer_status(offer_id, req.status)}
+
+
+@router.get("/bootstrap/macbook.sh")
+async def bootstrap_macbook_script(request: Request):
+    """One-line MacBook bootstrap: curl -fsSL http://<mini>:8787/api/bootstrap/macbook.sh | bash"""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "bootstrap-macbook.sh"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="bootstrap script missing")
+    text = path.read_text(encoding="utf-8")
+    host = request.headers.get("host", f"127.0.0.1:{settings.port}")
+    text = text.replace("__MINI_HOST__", host.split(":")[0]).replace("__FLEET_TOKEN__", settings.fleet_token or "")
+    return Response(content=text, media_type="text/x-shellscript")
 
 
 @router.websocket("/remote/ws")

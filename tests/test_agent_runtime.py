@@ -220,7 +220,7 @@ async def test_router_routes_explicit_named_agent(monkeypatch):
         assert text == "use agent Code Reviewer: review this service"
         return agent, "review this service"
 
-    async def fake_execute_agent(agent_record, task: str, *, voice: bool = False, conversation_id=None):
+    async def fake_execute_agent(agent_record, task: str, *, voice: bool = False, conversation_id=None, task_id=None):
         assert agent_record.name == "Code Reviewer"
         assert task == "review this service"
         return {

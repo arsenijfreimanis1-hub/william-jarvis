@@ -25,8 +25,12 @@ async def lifespan(app: FastAPI):
         await remote_control.set_enabled(True)
     scheduler.start()
     worker.start()
-    from jarvis.services import vigil_metrics
+    from jarvis.services import link, resource_governor, vigil_metrics
 
+    if settings.governor_enabled:
+        resource_governor.start()
+    if settings.link_enabled:
+        link.start()
     vigil_metrics.start()
     from jarvis.services import vigil_proxy
 
@@ -37,6 +41,8 @@ async def lifespan(app: FastAPI):
     yield
     worker.stop()
     scheduler.stop()
+    resource_governor.stop()
+    await link.stop()
     await vigil_metrics.close()
     await macos.close_helper_client()
 

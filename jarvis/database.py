@@ -82,6 +82,10 @@ async def init_db() -> None:
 
     await provider_usage.ensure_tables()
     await provider_vectors.ensure_tables()
+    from jarvis.services import journal, spans
+
+    await spans.ensure_tables()
+    await journal.ensure_tables()
     from jarvis.services import compute_fleet
 
     await compute_fleet.ensure_seed_nodes()

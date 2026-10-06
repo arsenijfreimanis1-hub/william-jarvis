@@ -29,8 +29,22 @@ KNOWN_AGENT_TOOLS = frozenset(
         "vectors.search",
         "cad.generate",
         "app_icons.apply",
+        # Zero-token rules tools
+        "rules.run",
+        "system.live",
+        "system.services",
+        "git.status",
+        "files.read",
+        "journal.read",
+        "journal.write",
+        "web.search",
+        "notify.user",
+        "agents.invoke",
     }
 )
+
+AgentEngine = Literal["rules", "gateway", "cursor"]
+DeviceAffinity = Literal["mini", "macbook", "any"]
 
 
 def normalize_agent_name(name: str) -> str:
@@ -46,13 +60,23 @@ def agent_name_key(name: str) -> str:
 
 
 class AgentRuntimeConfig(BaseModel):
+    # Legacy field kept for compatibility; `engine` is the real selector.
     execution_engine: Literal["cursor"] = "cursor"
+    engine: AgentEngine = "cursor"
+    entrypoint: str | None = None  # rules engine: "jarvis.agents.rules.system:live"
     autonomy_mode: Literal["supervised", "assisted"] = "supervised"
     model: str | None = None
     workspace_dir: str | None = None
     allowed_tools: list[str] = Field(default_factory=lambda: ["cursor_agent.run"])
     preferred_role: Literal["control", "planner", "tester", "general"] | None = None
     preferred_capabilities: list[str] = Field(default_factory=list)
+    device_affinity: DeviceAffinity = "any"
+    token_budget: int = 0  # 0 = no cap
+    requires: list[str] = Field(default_factory=list)  # agent name_keys invoked as child spans
+    skills: list[str] = Field(default_factory=list)
+    cooldown_hours: float = 0.0
+    group: str | None = None
+    post_thought: str = ""  # POSTTHOUGHT.md template; empty = default
 
     @field_validator("allowed_tools")
     @classmethod
@@ -68,9 +92,31 @@ class AgentRuntimeConfig(BaseModel):
             if tool not in seen:
                 cleaned.append(tool)
                 seen.add(tool)
-        if "cursor_agent.run" not in seen:
+        if "cursor_agent.run" not in seen and "rules.run" not in seen:
             cleaned.insert(0, "cursor_agent.run")
         return cleaned
+
+    @field_validator("requires", "skills")
+    @classmethod
+    def normalize_keys(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            key = agent_name_key(str(item or "")) if str(item or "").strip() else ""
+            if key and key not in seen:
+                cleaned.append(key)
+                seen.add(key)
+        return cleaned
+
+    @field_validator("entrypoint")
+    @classmethod
+    def validate_entrypoint(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        value = value.strip()
+        if ":" not in value or not re.match(r"^[\w.]+:[\w]+$", value):
+            raise ValueError("entrypoint must look like package.module:function")
+        return value
 
     @field_validator("preferred_capabilities")
     @classmethod

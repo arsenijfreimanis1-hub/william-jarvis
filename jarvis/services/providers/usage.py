@@ -79,7 +79,43 @@ def _parse(value: str | None) -> datetime | None:
 async def ensure_tables() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(_SCHEMA)
+        for col, typedef in (("agent", "TEXT"), ("device", "TEXT"), ("trace_id", "TEXT"), ("task_id", "INTEGER")):
+            try:
+                await db.execute(f"ALTER TABLE provider_usage ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass
         await db.commit()
+
+
+async def by_agent_device(*, days: int = 7) -> dict[str, Any]:
+    """Token ledger grouped by agent, device and provider (the token economy view)."""
+    await ensure_tables()
+    since = _fmt(_utc_now() - timedelta(days=days))
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        agents = await (await db.execute(
+            """SELECT COALESCE(agent, '(router)') AS agent, COUNT(*) AS calls,
+                      SUM(prompt_tokens) AS pt, SUM(completion_tokens) AS ct
+               FROM provider_usage WHERE created_at >= ? AND ok = 1 GROUP BY agent ORDER BY pt + ct DESC""",
+            (since,))).fetchall()
+        devices = await (await db.execute(
+            """SELECT COALESCE(device, 'mini') AS device, COUNT(*) AS calls,
+                      SUM(prompt_tokens) AS pt, SUM(completion_tokens) AS ct
+               FROM provider_usage WHERE created_at >= ? AND ok = 1 GROUP BY device""", (since,))).fetchall()
+        providers = await (await db.execute(
+            """SELECT provider, model, COUNT(*) AS calls, SUM(prompt_tokens) AS pt, SUM(completion_tokens) AS ct
+               FROM provider_usage WHERE created_at >= ? AND ok = 1 GROUP BY provider, model ORDER BY pt + ct DESC""",
+            (since,))).fetchall()
+        hourly = await (await db.execute(
+            """SELECT substr(created_at, 1, 13) AS hour, SUM(prompt_tokens + completion_tokens) AS tokens, COUNT(*) AS calls
+               FROM provider_usage WHERE created_at >= ? AND ok = 1 GROUP BY hour ORDER BY hour""",
+            (_fmt(_utc_now() - timedelta(hours=48)),))).fetchall()
+
+    def rows(rs):
+        return [{**dict(r), "tokens": int((r["pt"] or 0) + (r["ct"] or 0))} for r in rs]
+
+    return {"days": days, "by_agent": rows(agents), "by_device": rows(devices), "by_provider": rows(providers),
+            "hourly": [dict(r) for r in hourly]}
 
 
 async def record(
@@ -96,6 +132,13 @@ async def record(
     source: str | None = None,
 ) -> None:
     """Append one call to the ledger. Never raises — bookkeeping must not break a model call."""
+    try:
+        if ok:
+            from jarvis.services import spans
+
+            spans.add_tokens(prompt_tokens, completion_tokens, provider=provider, model=model)
+    except Exception:
+        pass
     try:
         await _record(
             provider, capability=capability, ok=ok, model=model, status_code=status_code, latency_ms=latency_ms,
@@ -121,13 +164,25 @@ async def _record(
     await ensure_tables()
     now = _fmt(_utc_now())
     day = now[:10]
+    agent = device = trace_id = None
+    task_id = None
+    try:
+        from jarvis.services import spans
+
+        sp = spans.current()
+        device = spans.device_name()
+        if sp:
+            agent, trace_id, task_id = sp.agent, sp.trace_id, sp.task_id
+    except Exception:
+        pass
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             INSERT INTO provider_usage
                 (provider, model, capability, ok, status_code, latency_ms,
-                 prompt_tokens, completion_tokens, error, source, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 prompt_tokens, completion_tokens, error, source, created_at,
+                 agent, device, trace_id, task_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 provider,
@@ -141,6 +196,10 @@ async def _record(
                 (error or "")[:400] or None,
                 source,
                 now,
+                agent,
+                device,
+                trace_id,
+                task_id,
             ),
         )
         await db.execute(

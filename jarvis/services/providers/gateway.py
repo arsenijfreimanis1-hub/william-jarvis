@@ -225,7 +225,12 @@ async def _call_vigil(*, messages: list[dict], system: str | None, capability: s
 
 
 def _with_personality(system: str | None, capability: str) -> str | None:
-    persona = (settings.personality_prompt or "").strip()
+    try:
+        from jarvis.brain import persona as _persona
+
+        persona = _persona.prompt().strip()
+    except Exception:
+        persona = (settings.personality_prompt or "").strip()
     if not persona or capability not in ("chat", "reason", "long_context"):
         return system
     if system and persona in system:

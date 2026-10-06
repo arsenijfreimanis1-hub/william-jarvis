@@ -38,6 +38,20 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 8787
+    # Device role: `mini` (always-on control plane) or `macbook` (intake + thought). Same codebase.
+    role: str = "mini"
+    device_name: str = ""
+    # Device link (docs/LINK_PROTOCOL.md). MacBook dials the Mini; Mini accepts on /ws/link.
+    link_enabled: bool = True
+    link_peer_url: str = ""  # macbook: ws://<mini-tailscale-or-lan>:8787/ws/link
+    link_heartbeat_seconds: int = 10
+    link_timeout_seconds: int = 30
+    link_backlog: int = 500
+    # Resource governor
+    governor_enabled: bool = True
+    governor_interval_seconds: int = 5
+    # Brain persona file override (defaults to jarvis/brain/persona/<role>.md)
+    persona_file: str = ""
     data_dir: Path = Field(default_factory=resolve_data_dir)
     workspace_dir: Path = ROOT
     state_root: Path = Field(default_factory=lambda: resolve_data_dir().parent)

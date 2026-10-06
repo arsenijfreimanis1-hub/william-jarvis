@@ -13,7 +13,16 @@ _wake = asyncio.Event()
 
 
 def _parallel_limit() -> int:
-    return compute_fleet.worker_parallel()
+    limit = compute_fleet.worker_parallel()
+    try:
+        from jarvis.services import resource_governor
+
+        cap = resource_governor.worker_parallel_cap()
+        if cap is not None:
+            return max(1, min(limit, int(cap)))
+    except Exception:
+        pass
+    return limit
 
 
 def notify() -> None:

@@ -48,13 +48,18 @@ async def local_chat(*, system: str | None = None, messages: list[dict]) -> str:
     if not built:
         raise ValueError("messages required")
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{settings.ollama_base_url}/api/chat",
-            json={"model": settings.ollama_model, "messages": built, "stream": False, "options": {"temperature": 0.1}},
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"]
+    from jarvis.services import resource_governor
+
+    # 16 GB: one local model call in flight at a time (governor policy `ollama_single_flight`).
+    async with resource_governor.ollama_gate():
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{settings.ollama_base_url}/api/chat",
+                json={"model": settings.ollama_model, "messages": built, "stream": False,
+                      "options": {"temperature": 0.1}},
+            )
+            resp.raise_for_status()
+            return resp.json()["message"]["content"]
 
 
 async def embed(texts: list[str], *, model: str | None = None) -> list[list[float]]:

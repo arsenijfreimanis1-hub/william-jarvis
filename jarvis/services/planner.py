@@ -527,6 +527,12 @@ async def handle_message(
             "stdout": routed.get("stdout"),
             "agent_name": routed.get("agent_name"),
             "agent_version": routed.get("agent_version"),
+            "agent_engine": routed.get("agent_engine"),
+            "provider": routed.get("provider"),
+            "model": routed.get("model"),
+            "trace_id": routed.get("trace_id"),
+            "tokens": routed.get("tokens"),
+            "required": routed.get("required"),
         }
     except Exception as exc:
         if "task" in locals():

@@ -195,7 +195,36 @@ def start() -> None:
             id="github_state_sync",
             replace_existing=True,
         )
+    if getattr(settings, "role", "mini") == "mini":
+        scheduler.add_job(key_hunt, "interval", hours=6, id="key_hunt", replace_existing=True)
+        scheduler.add_job(selfheal_check, "interval", minutes=30, id="selfheal_check", replace_existing=True)
+    scheduler.add_job(journal_daily_digest, "cron", hour=23, minute=50, id="journal_daily_digest",
+                      replace_existing=True)
     scheduler.start()
+
+
+async def key_hunt() -> None:
+    from jarvis.services.providers import hunter
+
+    await hunter.hunt(notify=True)
+
+
+async def selfheal_check() -> None:
+    """Diagnose only; apply fixes automatically just for dead services and oversized logs."""
+    from jarvis.services import selfheal
+
+    report = await selfheal.diagnose()
+    urgent = [f for f in report["findings"] if f["kind"] in ("service_unhealthy", "log_oversized", "ollama_unreachable")]
+    if urgent:
+        await selfheal.run(apply=True, by="scheduler")
+
+
+async def journal_daily_digest() -> None:
+    from jarvis.services import journal
+
+    stats = await journal.stats(days=1)
+    await journal.write("note", "Daily digest: " + ", ".join(f"{k} {v}" for k, v in sorted(stats["by_kind"].items())),
+                        source="scheduler", metadata=stats)
 
 
 def stop() -> None:

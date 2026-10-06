@@ -194,6 +194,35 @@ async def route(
     task_id: int | None = None,
     messaging: bool = False,
 ) -> dict:
+    """Orchestrator entry: opens the root span, journals the input, then dispatches."""
+    from jarvis.services import journal, spans
+
+    source = "voice" if voice else ("messaging" if messaging else "web")
+    async with spans.span("orchestrator", spans.device_name(), task_id=task_id, input_text=text,
+                          metadata={"source": source, "conversation_id": conversation_id}) as sp:
+        await journal.input(text[:160], source=source, task_id=task_id)
+        result = await _route_inner(text, voice=voice, conversation_id=conversation_id, task_id=task_id,
+                                    messaging=messaging)
+        engine = result.get("engine")
+        sp.provider = sp.provider or (engine if engine not in ("agent", "local") else sp.provider)
+        spans.set_output(result.get("reply"))
+        result.setdefault("trace_id", sp.trace_id)
+        result["tokens"] = sp.prompt_tokens + sp.completion_tokens
+        if engine and engine not in ("agent",):
+            await journal.decision(f"routed via {engine} ({result.get('intent', '?')}), {result['tokens']} tokens",
+                                   source="router", task_id=task_id,
+                                   metadata={"engine": engine, "intent": result.get("intent")})
+        return result
+
+
+async def _route_inner(
+    text: str,
+    *,
+    voice: bool = False,
+    conversation_id: str | None = None,
+    task_id: int | None = None,
+    messaging: bool = False,
+) -> dict:
     # 1. Execute local macOS / terminal actions first (never hallucinate "opening Spotify").
     local = await executor.try_local_execute(text, voice=voice)
     if local:
@@ -242,6 +271,7 @@ async def route(
             task,
             voice=voice,
             conversation_id=conversation_id,
+            task_id=task_id,
         )
         if executed.get("ok"):
             return executed
