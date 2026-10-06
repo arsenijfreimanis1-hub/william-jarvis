@@ -35,3 +35,14 @@ apps/staff-web/.env.production
 mac-mini/.env
 mac-mini/cloudflared/*.json
 .tmp_gh_token
+# Third-party skills are reproducible via scripts/sync-skills.sh + skills-lock.json.
+# Only the university coach skills (from the zip) are tracked so the MacBook gets them.
+.agents/skills/*
+!.agents/skills/unknown-business-coach/
+!.agents/skills/ideation-coach/
+!.agents/skills/validation-coach/
+!.agents/skills/effectuation-coach/
+!.agents/skills/finance-coach/
+!.agents/skills/pricing-coach/
+!.agents/skills/impact-coach/
+!.agents/skills/scaling-coach/

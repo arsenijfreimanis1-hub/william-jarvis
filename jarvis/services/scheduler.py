@@ -200,7 +200,15 @@ def start() -> None:
         scheduler.add_job(selfheal_check, "interval", minutes=30, id="selfheal_check", replace_existing=True)
     scheduler.add_job(journal_daily_digest, "cron", hour=23, minute=50, id="journal_daily_digest",
                       replace_existing=True)
+    if getattr(settings, "role", "mini") == "mini":
+        scheduler.add_job(mentor_watch, "interval", hours=6, id="mentor_watch", replace_existing=True)
     scheduler.start()
+
+
+async def mentor_watch() -> None:
+    from jarvis.services import mentor
+
+    await mentor.maybe_coach()
 
 
 async def key_hunt() -> None:

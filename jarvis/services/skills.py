@@ -113,6 +113,47 @@ def load_domain_block(text: str) -> str:
     return load_skills_block(domains=domains)
 
 
+def find_skill(name: str) -> tuple[str, Path] | None:
+    """Locate a skill by folder name (external SKILL.md) or jarvis/skills stem."""
+    core = SKILLS_DIR / f"{name}.md"
+    if core.is_file():
+        return name, core
+    for root in GLOBAL_SKILL_ROOTS:
+        candidate = root / name / "SKILL.md"
+        if candidate.is_file():
+            return name, candidate
+    return None
+
+
+def load_named_block(names: list[str], *, max_chars: int = 12000) -> str:
+    """Skills explicitly listed in an agent's README (`skills:`), truncated to a budget.
+
+    Reference files next to a SKILL.md are listed by path so the agent can read them on demand
+    (File Reader) instead of inflating every prompt.
+    """
+    parts: list[str] = []
+    used = 0
+    for name in names:
+        found = find_skill(name)
+        if not found:
+            continue
+        _, path = found
+        text = _read_skill(path)
+        if not text:
+            continue
+        refs = sorted((path.parent / "references").glob("*.md")) if path.name == "SKILL.md" else []
+        ref_line = ("\nReference files: " + ", ".join(str(r.relative_to(ROOT)) if r.is_relative_to(ROOT) else str(r)
+                                                      for r in refs)) if refs else ""
+        chunk = f"### Skill: {name}\n{text}{ref_line}"
+        if used + len(chunk) > max_chars:
+            chunk = chunk[: max(0, max_chars - used)] + "\n…(truncated)"
+        parts.append(chunk)
+        used += len(chunk)
+        if used >= max_chars:
+            break
+    return ("AGENT SKILLS:\n" + "\n\n".join(parts)) if parts else ""
+
+
 def list_installed_skills() -> list[dict[str, str]]:
     """Return metadata for dashboard / API."""
     items: list[dict[str, str]] = []

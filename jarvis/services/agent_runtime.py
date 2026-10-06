@@ -153,6 +153,12 @@ async def _live_context(agent: AgentRecord) -> str:
             jb = await journal.block(limit=6)
             if jb:
                 blocks.append(jb)
+        if agent.runtime.skills:
+            from jarvis.services import skills
+
+            sb = skills.load_named_block(agent.runtime.skills)
+            if sb:
+                blocks.append(sb)
     except Exception:
         pass
     return ("\n\n".join(blocks) + "\n\n") if blocks else ""

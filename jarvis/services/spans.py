@@ -146,6 +146,17 @@ def current_trace_id() -> str | None:
     return span.trace_id if span else None
 
 
+def root() -> Span | None:
+    """The outermost running span of the current trace (the task boundary)."""
+    span = _current.get()
+    while span is not None and span.parent_span_id:
+        parent = _parent_lookup.get(span.parent_span_id)
+        if parent is None:
+            break
+        span = parent
+    return span
+
+
 def register_sink(sink) -> None:
     """Register an async callable receiving every span event (used by the device link)."""
     if sink not in _link_sinks:

@@ -141,6 +141,7 @@ class Settings(BaseSettings):
     # free_cloud_first | local_first | local_only
     gateway_mode: str = "free_cloud_first"
     gateway_timeout_seconds: int = 90
+    gateway_soft_ceiling_percent: float = 80.0  # rotate to fresher keys past this share of the free daily limit
     gateway_log_prompts: bool = False
     gemini_api_key: str = ""
     mistral_api_key: str = ""

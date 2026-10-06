@@ -71,9 +71,15 @@ async def chain(capability: str, *, exclude: set[str] | None = None) -> list[tup
             continue
         if await usage.is_cooling(spec.id):
             continue
-        if not await usage.has_headroom(spec.id):
+        head = await usage.headroom(spec.id)
+        if not head["available"]:
             continue
-        cloud.append((spec, model))
+        cloud.append((spec, model, head.get("daily_percent") or 0.0))
+    # Key rotation: providers past the soft ceiling move behind fresher ones (stable sort), so
+    # new tasks start on a key with room while an in-flight trace keeps its pinned provider.
+    soft = float(getattr(settings, "gateway_soft_ceiling_percent", 80.0))
+    cloud.sort(key=lambda item: 1 if item[2] >= soft else 0)
+    cloud = [(spec, model) for spec, model, _ in cloud]
     local = (catalog.PROVIDERS["ollama"], settings.ollama_model)
     current = mode()
     if current == "local_only":
@@ -262,6 +268,17 @@ async def chat_detailed(
     system = _with_personality(system, capability)
 
     ordered = await chain(capability, exclude=exclude)
+    # Within one trace (task) stick to the provider that already answered: never rotate mid-stream.
+    pinned = None
+    try:
+        from jarvis.services import spans
+
+        root = spans.root()
+        pinned = (root.metadata.get("pinned_provider") if root else None)
+    except Exception:
+        root = None
+    if pinned and not prefer and any(p.id == pinned for p, _ in ordered):
+        prefer = pinned
     if prefer:
         ordered.sort(key=lambda pair: 0 if pair[0].id == prefer else 1)
 
@@ -301,6 +318,8 @@ async def chat_detailed(
         result["capability"] = capability
         result["attempts"] = attempts
         last_decision = {k: v for k, v in result.items() if k != "reply"}
+        if root is not None and result.get("provider") and result["provider"] != "ollama":
+            root.metadata.setdefault("pinned_provider", result["provider"])
         return result
 
     last_decision = {"capability": capability, "attempts": attempts, "provider": None}

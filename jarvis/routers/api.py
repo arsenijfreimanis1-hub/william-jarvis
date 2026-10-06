@@ -1582,6 +1582,20 @@ async def selfheal_status():
     return {"last": selfheal.last_report(), "diagnosis": await selfheal.diagnose()}
 
 
+@router.get("/mentor/milestones")
+async def mentor_milestones():
+    from jarvis.services import mentor
+
+    return {"milestones": await mentor.detect_milestones()}
+
+
+@router.post("/mentor/coach")
+async def mentor_coach(force: bool = False):
+    from jarvis.services import mentor
+
+    return await mentor.maybe_coach(force=force)
+
+
 @router.get("/providers/offers")
 async def provider_offers(status: str | None = None, limit: int = 100):
     from jarvis.services.providers import hunter

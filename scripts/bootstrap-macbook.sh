@@ -56,6 +56,9 @@ PY="/opt/homebrew/bin/python3.12"; [[ -x "$PY" ]] || PY="python3"
 [[ -d .venv ]] || "$PY" -m venv .venv
 .venv/bin/pip install -q -r requirements.txt
 
+say "Syncing skills"
+./scripts/sync-skills.sh >/dev/null 2>&1 || say "skills sync skipped"
+
 say "Writing .env (role=macbook)"
 touch .env
 _set() { # key value
