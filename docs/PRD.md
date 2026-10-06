@@ -101,6 +101,11 @@ Ollama. Every decision is journaled and shown in Studio with keep/cancel buttons
 4. **IDE** — file tree, editor with highlighting, terminal (SwiftTerm), git status/diff.
 5. **Settings** — devices/link, personas, keys (masked), budgets, governor, approvals, skills, self-heal.
 
+Source: `macos-helper/Sources/WilliamStudio/`. Install: `scripts/install-studio.sh` → `~/Applications/William Studio.app`
+(ad-hoc signed; Info.plist carries speech + microphone usage strings). The app talks to the **local** core
+(`http://127.0.0.1:8787`); on the MacBook the router forwards every non-rules prompt to the Mini (Scout → Steward)
+and the Mini's spans/journal mirror back over the link, so the graph shows both devices.
+
 ## 9. Self-heal
 
 `POST /api/selfheal` → diagnostics (health, launchd, ports, models, tests, journal problems)

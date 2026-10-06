@@ -4,6 +4,10 @@ import PackageDescription
 let package = Package(
     name: "JarvisHelper",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        // Terminal emulator for William Studio's IDE (MIT).
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
+    ],
     targets: [
         .executableTarget(
             name: "JarvisHelper",
@@ -20,6 +24,13 @@ let package = Package(
         .executableTarget(
             name: "WilliamSystemMap",
             path: "Sources/WilliamSystemMap"
+        ),
+        .executableTarget(
+            name: "WilliamStudio",
+            dependencies: [
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
+            ],
+            path: "Sources/WilliamStudio"
         ),
     ]
 )

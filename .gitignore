@@ -21,6 +21,7 @@ macos-helper/JarvisHelper.app/
 macos-helper/WilliamKiosk.app/
 macos-helper/WilliamDesktop.app/
 macos-helper/WilliamSystemMap.app/
+macos-helper/WilliamStudio.app/
 macos-helper/.build/
 .voice-venv/
 .test-venv/

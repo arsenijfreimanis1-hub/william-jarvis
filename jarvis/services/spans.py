@@ -192,6 +192,7 @@ async def _persist(span: Span) -> None:
                     prompt_tokens = excluded.prompt_tokens, completion_tokens = excluded.completion_tokens,
                     provider = excluded.provider, model = excluded.model, output = excluded.output,
                     error = excluded.error, metadata = excluded.metadata
+                WHERE spans.ended_at IS NULL
                 """,
                 (
                     d["span_id"], d["trace_id"], d["parent_span_id"], d["device"], d["kind"], d["name"],

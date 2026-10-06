@@ -215,6 +215,24 @@ async def route(
         return result
 
 
+async def _forward_to_steward(text: str, agent_invocation, *, voice: bool, conversation_id: str | None) -> dict | None:
+    """On a `macbook` role with a connected peer, forward non-rules prompts to the Mini."""
+    from jarvis.config import settings
+    from jarvis.services import link
+
+    if getattr(settings, "role", "mini") != "macbook" or not link.status()["peers"]:
+        return None
+    if agent_invocation and getattr(agent_invocation[0].runtime, "engine", "cursor") == "rules":
+        return None  # zero tokens, answer locally
+    result = await link.send_prompt(text, session_id=conversation_id, voice=voice)
+    if not result.get("ok"):
+        return None  # fall through to local handling
+    reply = result.get("reply") or ""
+    return {**{k: v for k, v in result.items() if k not in ("ok", "in_reply_to")},
+            "reply": reply, "engine": result.get("engine", "steward"), "forwarded_to": "mini",
+            "intent": result.get("intent", "forwarded")}
+
+
 async def _route_inner(
     text: str,
     *,
@@ -264,6 +282,13 @@ async def _route_inner(
         return {"reply": reply, "engine": "cad", "intent": "cad", "cad": result}
 
     agent_invocation = await agent_runtime.resolve_invocation(text)
+
+    # Scout → Steward: on the MacBook, only macOS actions and zero-token rules agents run locally;
+    # anything that would spend tokens or needs the control plane is forwarded to the Mini.
+    forwarded = await _forward_to_steward(text, agent_invocation, voice=voice, conversation_id=conversation_id)
+    if forwarded is not None:
+        return forwarded
+
     if agent_invocation:
         agent, task = agent_invocation
         executed = await agent_runtime.execute_agent(

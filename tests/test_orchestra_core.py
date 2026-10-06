@@ -208,3 +208,70 @@ def test_persona_follows_role(monkeypatch):
     assert "Scout" in persona.prompt()
     monkeypatch.setattr("jarvis.config.settings.role", "mini")
     assert "Steward" in persona.prompt()
+
+
+# --------------------------------------------------------------------------- scout → steward forwarding
+
+@pytest.mark.asyncio
+async def test_macbook_forwards_non_rules_prompts_to_mini(monkeypatch, isolated_db):
+    from jarvis.services import link, router
+
+    monkeypatch.setattr("jarvis.config.settings.role", "macbook")
+    monkeypatch.setattr(link, "status", lambda: {"peers": [{"role": "mini"}]})
+    sent: list[str] = []
+
+    async def fake_send_prompt(text, *, session_id=None, voice=False, timeout=180.0):
+        sent.append(text)
+        return {"ok": True, "reply": "done on the mini", "engine": "willy", "intent": "chat", "tokens": 12}
+
+    async def fake_try_local_execute(text, *, voice=False):
+        return None
+
+    async def fake_resolve_invocation(text):
+        return None
+
+    monkeypatch.setattr(link, "send_prompt", fake_send_prompt)
+    monkeypatch.setattr(router.executor, "try_local_execute", fake_try_local_execute)
+    monkeypatch.setattr(router.agent_runtime, "resolve_invocation", fake_resolve_invocation)
+
+    result = await router.route("write me a haiku about tailscale")
+    assert sent == ["write me a haiku about tailscale"]
+    assert result["reply"] == "done on the mini"
+    assert result["forwarded_to"] == "mini"
+
+
+@pytest.mark.asyncio
+async def test_macbook_keeps_rules_agents_local(monkeypatch, isolated_db):
+    from jarvis.services import link, router
+    from jarvis.services.agent_types import AgentRecord
+
+    monkeypatch.setattr("jarvis.config.settings.role", "macbook")
+    monkeypatch.setattr(link, "status", lambda: {"peers": [{"role": "mini"}]})
+
+    async def fail_send_prompt(*a, **k):
+        raise AssertionError("rules agent must not be forwarded")
+
+    agent = AgentRecord(
+        id=1, name="System Monitor", name_key="system-monitor", purpose="live system snapshot",
+        instructions="report cpu/memory", trigger_phrases=["system status"],
+        runtime={"engine": "rules", "entrypoint": "jarvis.agents.rules.system:live", "allowed_tools": ["rules.run"]},
+        created_at="now", updated_at="now",
+    )
+
+    async def fake_try_local_execute(text, *, voice=False):
+        return None
+
+    async def fake_resolve_invocation(text):
+        return agent, "status"
+
+    async def fake_execute_agent(agent_record, task, *, voice=False, conversation_id=None, task_id=None):
+        return {"ok": True, "reply": "cpu 12%", "engine": "agent", "agent_engine": "rules"}
+
+    monkeypatch.setattr(link, "send_prompt", fail_send_prompt)
+    monkeypatch.setattr(router.executor, "try_local_execute", fake_try_local_execute)
+    monkeypatch.setattr(router.agent_runtime, "resolve_invocation", fake_resolve_invocation)
+    monkeypatch.setattr(router.agent_runtime, "execute_agent", fake_execute_agent)
+
+    result = await router.route("system status")
+    assert result["reply"] == "cpu 12%"
+    assert "forwarded_to" not in result
