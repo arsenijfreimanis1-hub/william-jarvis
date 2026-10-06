@@ -27,6 +27,10 @@ macos-helper/.build/
 .pytest_cache/
 backups/
 models/
+# Generated artifacts from the free-provider gateway (icons, CAD, TTS audio)
+exports/icons/
+exports/cad/
+exports/audio/
 apps/staff-web/.env.production
 mac-mini/.env
 mac-mini/cloudflared/*.json

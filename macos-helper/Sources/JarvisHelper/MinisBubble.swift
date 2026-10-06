@@ -12,8 +12,22 @@ final class MinisViewModel: ObservableObject {
     @Published var remoteControlEnabled = false
     @Published var statusText = "Checking…"
     @Published var actionText = ""
+    @Published var isCollapsed: Bool {
+        didSet {
+            guard oldValue != isCollapsed else { return }
+            UserDefaults.standard.set(isCollapsed, forKey: Self.collapsedDefaultsKey)
+            onLayoutChange?()
+        }
+    }
 
+    var onLayoutChange: (() -> Void)?
+
+    private static let collapsedDefaultsKey = "minisBubbleCollapsed"
     private var pollTimer: Timer?
+
+    init() {
+        isCollapsed = UserDefaults.standard.bool(forKey: Self.collapsedDefaultsKey)
+    }
 
     func startPolling() {
         pollTimer?.invalidate()
@@ -259,18 +273,63 @@ struct MinisBubbleView: View {
     @State private var showHardResetConfirm = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(model.coreConnected ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                Text("Minis")
-                    .font(.headline)
-                Spacer()
-                Text(model.statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if model.isCollapsed {
+                    collapsedBody
+                } else {
+                    expandedBody
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            Button {
+                model.isCollapsed.toggle()
+            } label: {
+                Image(systemName: model.isCollapsed ? "arrow.up.left" : "arrow.down.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help(model.isCollapsed ? "Expand Minis panel" : "Collapse Minis panel")
+            .padding(2)
+        }
+        .padding(model.isCollapsed ? 10 : 14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .alert("Hard reset?", isPresented: $showHardResetConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) {
+                Task { await model.hardReset() }
+            }
+        } message: {
+            Text("Turns off screen share and remote control, then fully restarts JarvisCore and JarvisHelper.")
+        }
+    }
+
+    private var statusHeader: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(model.coreConnected ? Color.green : Color.red)
+                .frame(width: 10, height: 10)
+            Text("Minis")
+                .font(.headline)
+            Spacer(minLength: 4)
+            Text(model.statusText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var collapsedBody: some View {
+        statusHeader
+    }
+
+    private var expandedBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            statusHeader
 
             Toggle("Screen Share", isOn: Binding(
                 get: { model.screenShareEnabled },
@@ -316,17 +375,7 @@ struct MinisBubbleView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(14)
-        .frame(width: 240)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .alert("Hard reset?", isPresented: $showHardResetConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Reset", role: .destructive) {
-                Task { await model.hardReset() }
-            }
-        } message: {
-            Text("Turns off screen share and remote control, then fully restarts JarvisCore and JarvisHelper.")
-        }
+        .padding(.trailing, 14)
     }
 
     private func pickAndUpload() {
@@ -343,11 +392,14 @@ struct MinisBubbleView: View {
 }
 
 final class MinisBubblePanel: NSPanel {
+    private static let expandedSize = NSSize(width: 240, height: 220)
+    private static let collapsedSize = NSSize(width: 176, height: 56)
+
     private let viewModel = MinisViewModel()
 
     init() {
         super.init(
-            contentRect: NSRect(x: 80, y: 120, width: 240, height: 220),
+            contentRect: NSRect(x: 80, y: 120, width: Self.expandedSize.width, height: Self.expandedSize.height),
             styleMask: [.nonactivatingPanel, .hudWindow, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -363,10 +415,43 @@ final class MinisBubblePanel: NSPanel {
         hasShadow = true
         hidesOnDeactivate = false
 
+        viewModel.onLayoutChange = { [weak self] in
+            Task { @MainActor in
+                self?.applyLayout(animated: true)
+            }
+        }
+
         let hosting = NSHostingView(rootView: MinisBubbleView(model: viewModel))
         hosting.frame = contentRect(forFrameRect: frame)
         hosting.autoresizingMask = [.width, .height]
         contentView = hosting
+
+        if viewModel.isCollapsed {
+            applyLayout(animated: false)
+        }
+    }
+
+    private func targetSize() -> NSSize {
+        viewModel.isCollapsed ? Self.collapsedSize : Self.expandedSize
+    }
+
+    private func applyLayout(animated: Bool) {
+        let target = targetSize()
+        var next = frame
+        let heightDelta = next.size.height - target.height
+        next.size = target
+        next.origin.y += heightDelta
+
+        guard animated else {
+            setFrame(next, display: true)
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            self.animator().setFrame(next, display: true)
+        }
     }
 
     func showBubble() {

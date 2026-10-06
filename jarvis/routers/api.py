@@ -178,6 +178,58 @@ class InvokeAgentRequest(BaseModel):
     voice: bool = False
 
 
+class SaveProviderKeyRequest(BaseModel):
+    provider: str = Field(min_length=2)
+    key: str = Field(min_length=8)
+    env_name: str | None = None
+    token: str | None = None
+
+
+class GatewayChatRequest(BaseModel):
+    message: str | None = None
+    messages: list[dict] | None = None
+    system: str | None = None
+    capability: str = "chat"
+    prefer: str | None = None
+    temperature: float = 0.1
+    max_tokens: int | None = None
+    source: str = "device"
+    token: str | None = None
+
+
+class GatewayFimRequest(BaseModel):
+    prefix: str
+    suffix: str = ""
+    max_tokens: int = 256
+    token: str | None = None
+
+
+class EmbedRequest(BaseModel):
+    texts: list[str] = Field(min_length=1)
+    token: str | None = None
+
+
+class TtsRequest(BaseModel):
+    text: str = Field(min_length=1)
+    prefer_local: bool = False
+    voice: str | None = None
+    token: str | None = None
+
+
+class CadRequest(BaseModel):
+    prompt: str = Field(min_length=3)
+    engine: str = "auto"
+    image_path: str | None = None
+    token: str | None = None
+
+
+class IconRequest(BaseModel):
+    name: str = Field(min_length=1)
+    target: str | None = None
+    kind: str = "auto"
+    seed: str | None = None
+
+
 @router.get("/dashboard")
 async def dashboard():
     """Single fast poll for kiosk — health, voice, active work."""
@@ -199,6 +251,16 @@ async def dashboard():
         "tasks_active": active + queued,
         "approvals_pending": pending_approvals,
         "approval_count": len(pending_approvals),
+    }
+
+
+def _gateway_health() -> dict:
+    from jarvis.services.providers import gateway, keys as provider_keys
+
+    return {
+        "mode": gateway.mode(),
+        "free_keys": [p for p in provider_keys.configured_providers() if p != "ollama"],
+        "last_provider": gateway.last_decision.get("provider"),
     }
 
 
@@ -225,6 +287,7 @@ async def health():
         "remote_control": await remote_control.status(),
         "execution": __import__("jarvis.services.local_runtime", fromlist=["execution_profile"]).execution_profile(),
         "vigil": vigil_metrics.status(),
+        "gateway": _gateway_health(),
         "skills": {
             "external_enabled": settings.external_skills_enabled,
             "installed": skills.list_installed_skills(),
@@ -1109,6 +1172,241 @@ async def fleet_wake_pc(
 ):
     _fleet_token(token, x_jarvis_fleet_token)
     return await fleet_power.wake_pc()
+
+
+# ─── Free AI provider gateway (one backend for every device) ────────────────
+
+
+@router.get("/providers")
+async def providers_overview():
+    from jarvis.services.providers import scout
+
+    return await scout.overview()
+
+
+@router.get("/providers/keys")
+async def providers_keys():
+    from jarvis.services.providers import keys as provider_keys
+
+    return provider_keys.report()
+
+
+@router.post("/providers/scan")
+async def providers_scan():
+    from jarvis.services.providers import scout
+
+    return await scout.scan_keys()
+
+
+@router.post("/providers/probe")
+async def providers_probe(provider: str | None = None):
+    from jarvis.services.providers import scout
+
+    if provider:
+        return await scout.probe(provider)
+    return await scout.probe_all()
+
+
+@router.post("/providers/keys")
+async def providers_save_key(
+    req: SaveProviderKeyRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    from jarvis.services.providers import keys as provider_keys, scout
+
+    result = provider_keys.save_key(req.provider, req.key, env_name=req.env_name)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "key rejected"))
+    result["probe"] = await scout.probe(req.provider)
+    await scout.scan_keys(announce=False)
+    return result
+
+
+@router.delete("/providers/keys/{provider}")
+async def providers_delete_key(
+    provider: str,
+    token: str | None = None,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(token, x_jarvis_fleet_token)
+    from jarvis.services.providers import keys as provider_keys
+
+    return provider_keys.remove_key(provider)
+
+
+@router.get("/providers/usage")
+async def providers_usage(days: int = 7, recent: int = 0):
+    from jarvis.services.providers import usage as provider_usage
+
+    data = await provider_usage.summary(days=max(1, min(days, 90)))
+    if recent:
+        data["recent"] = await provider_usage.recent(limit=recent)
+    return data
+
+
+@router.get("/providers/shopping-list")
+async def providers_shopping_list():
+    from jarvis.services.providers import scout
+
+    return {"missing": await scout.shopping_list()}
+
+
+@router.post("/providers/open-signup/{provider}")
+async def providers_open_signup(provider: str):
+    from jarvis.services.providers import scout
+
+    return scout.open_signup(provider)
+
+
+@router.get("/gateway/status")
+async def gateway_status():
+    from jarvis.services.providers import gateway
+
+    return await gateway.status()
+
+
+@router.post("/gateway/chat")
+async def gateway_chat(
+    req: GatewayChatRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    """Devices (MacBook / PC) call this single backend instead of holding their own keys."""
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    from jarvis.services.providers import gateway
+
+    try:
+        return await gateway.chat_detailed(
+            req.messages,
+            prompt=req.message,
+            system=req.system,
+            capability=req.capability,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+            source=req.source,
+            prefer=req.prefer,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:400])
+
+
+@router.post("/gateway/fim")
+async def gateway_fim(
+    req: GatewayFimRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    from jarvis.services.providers import gateway
+
+    return await gateway.fim(req.prefix, req.suffix, max_tokens=req.max_tokens)
+
+
+@router.post("/gateway/embed")
+async def gateway_embed(
+    req: EmbedRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    from jarvis.services.providers import vectors
+
+    try:
+        return await vectors.embed(req.texts)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:400])
+
+
+@router.get("/memory/semantic")
+async def memory_semantic(q: str, limit: int = 5):
+    from jarvis.services.providers import vectors
+
+    return {"hits": await vectors.semantic_search(q, limit=limit), "stats": await vectors.stats()}
+
+
+@router.get("/speech/status")
+async def speech_status():
+    from jarvis.services.providers import speech
+
+    return speech.status()
+
+
+@router.post("/speech/transcribe")
+async def speech_transcribe(
+    file: UploadFile = File(...),
+    language: str | None = None,
+    token: str | None = None,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(token, x_jarvis_fleet_token)
+    import tempfile
+    from pathlib import Path as _Path
+
+    from jarvis.services.providers import speech
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty upload")
+    suffix = _Path(file.filename or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+    try:
+        return await speech.transcribe(tmp_path, language=language)
+    finally:
+        try:
+            _Path(tmp_path).unlink()
+        except Exception:
+            pass
+
+
+@router.post("/speech/tts")
+async def speech_tts(
+    req: TtsRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    from jarvis.services.providers import speech
+
+    result = await speech.synthesize(req.text, prefer_local=req.prefer_local, voice=req.voice)
+    if not result.get("ok"):
+        raise HTTPException(status_code=503, detail=result.get("error", "tts failed"))
+    return FileResponse(result["path"], media_type=result.get("content_type", "audio/aiff"),
+                        headers={"X-Provider": result.get("provider", "")})
+
+
+@router.get("/cad/status")
+async def cad_status():
+    from jarvis.services.providers import cad
+
+    return cad.status()
+
+
+@router.post("/cad/generate")
+async def cad_generate(
+    req: CadRequest,
+    x_jarvis_fleet_token: str | None = Header(default=None, alias="X-Jarvis-Fleet-Token"),
+):
+    _fleet_token(req.token, x_jarvis_fleet_token)
+    from jarvis.services.providers import cad
+
+    return await cad.generate(req.prompt, engine=req.engine, image_path=req.image_path)
+
+
+@router.post("/icons/generate")
+async def icons_generate(req: IconRequest):
+    from jarvis.services import app_icons
+
+    if req.target:
+        return app_icons.apply(req.target, name=req.name, kind=req.kind, seed=req.seed)
+    return app_icons.generate_icon_set(req.name, seed=req.seed)
+
+
+@router.post("/icons/apply-all")
+async def icons_apply_all():
+    from jarvis.services import app_icons
+
+    return app_icons.apply_everywhere()
 
 
 @router.websocket("/remote/ws")

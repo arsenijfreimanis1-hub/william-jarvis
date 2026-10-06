@@ -97,10 +97,12 @@ def _capability_groups() -> list[dict[str, Any]]:
             "id": "brain",
             "title": "Reasoning engines",
             "items": [
-                f"Local chat ({settings.ollama_model}) — free, default",
+                "Free gateway: Codestral / Gemini 2.5 Flash (1M ctx) / Groq / OpenRouter / HF by capability",
+                f"Local chat ({settings.ollama_model}) — free, always the fallback",
                 f"Vision ({settings.ollama_vision_model})",
                 "Web research + calculator + weather",
                 "Cursor cloud only for large builds (when configured)",
+                "Speech: Groq Whisper / HF TTS; 3D: OpenSCAD + Blender scripts, HF Spaces meshes",
             ],
         },
         {
@@ -147,6 +149,10 @@ async def build_map(*, active_session: dict | None = None) -> dict[str, Any]:
     worker_active = worker_st.get("active_jobs", 0) > 0 or bool(running or queued)
     screen_on = settings.screen_watch_enabled
 
+    from jarvis.services.providers import gateway, keys as provider_keys
+
+    free_keys = [p for p in provider_keys.configured_providers() if p != "ollama"]
+
     nodes: list[dict[str, Any]] = [
         _node(
             "user",
@@ -189,6 +195,16 @@ async def build_map(*, active_session: dict | None = None) -> dict[str, Any]:
             port=11434,
             capabilities=["Local chat", "Intent assist", "Vision"],
             metrics={"model": settings.ollama_model},
+        ),
+        _node(
+            "gateway",
+            "Free AI gateway",
+            category="brain",
+            status="online" if free_keys else "degraded",
+            detail=(", ".join(free_keys) if free_keys else "no free keys yet — Ollama only"),
+            capabilities=["Code (Codestral/Gemini)", "Fast (Groq)", "1M context (Gemini)", "Whisper STT",
+                          "Embeddings", "CAD scripts"],
+            metrics={"mode": gateway.mode(), "last_provider": gateway.last_decision.get("provider")},
         ),
         _node(
             "cursor",
@@ -285,6 +301,8 @@ async def build_map(*, active_session: dict | None = None) -> dict[str, Any]:
         _edge("user", "desktop", "chat", kind="http"),
         _edge("openclaw", "core", "POST /api/chat", active=openclaw_h.get("ok"), kind="http"),
         _edge("helper", "core", "POST /api/chat", active=voice_active, kind="http"),
+        _edge("core", "gateway", "route by capability", active=voice_active or worker_active, kind="inference"),
+        _edge("gateway", "ollama", "fallback", active=not free_keys, kind="inference"),
         _edge("core", "ollama", "chat / intent", active=voice_active or worker_active, kind="inference"),
         _edge("core", "cursor", "reason / code", active=worker_active, kind="inference"),
         _edge("core", "web", "fact lookup", kind="http"),

@@ -16,6 +16,19 @@ KNOWN_AGENT_TOOLS = frozenset(
         "terminal.execute",
         "web.research",
         "web.automate",
+        # Free-provider gateway tools
+        "gateway.chat",
+        "gateway.fim",
+        "providers.scan_keys",
+        "providers.probe",
+        "providers.usage",
+        "providers.save_key",
+        "speech.transcribe",
+        "speech.synthesize",
+        "vectors.embed",
+        "vectors.search",
+        "cad.generate",
+        "app_icons.apply",
     }
 )
 

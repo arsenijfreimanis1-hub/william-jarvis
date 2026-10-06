@@ -80,6 +80,11 @@ cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
 </plist>
 EOF
 
+# App icon (SVG → PNG → icns, sets CFBundleIconFile) — re-sign so the bundle stays valid
+python3 "$ROOT/jarvis/services/app_icons.py" --target "$APP_DIR" --name "Jarvis Helper" >/dev/null \
+  || echo "warning: app icon generation skipped"
+codesign --force --sign - --identifier com.willy.jarvis-helper --deep "$APP_DIR"
+
 PLIST_DST="$HOME/Library/LaunchAgents/com.willy.jarvis-helper.plist"
 cat > "$PLIST_DST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

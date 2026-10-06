@@ -70,6 +70,93 @@ def _agent_overlay(agent: AgentRecord, *, specialist_lessons: str = "") -> str:
     )
 
 
+_PROVIDER_TOOLS = frozenset(
+    {"providers.scan_keys", "providers.probe", "providers.usage", "providers.save_key", "gateway.chat", "gateway.fim"}
+)
+
+
+async def _live_context(agent: AgentRecord) -> str:
+    """Ground specialist agents in live facts so they never guess about keys, quotas or tools."""
+    tools = set(agent.runtime.allowed_tools)
+    blocks: list[str] = []
+    try:
+        if tools & _PROVIDER_TOOLS:
+            from jarvis.services.providers import scout, usage
+
+            blocks.append("PROVIDER KEYS + USAGE (live):\n" + await scout.status_reply(voice=False))
+            summary = await usage.summary(days=1)
+            lines = []
+            for pid, data in summary["providers"].items():
+                today = data.get("today") or {}
+                state = summary["state"].get(pid, {})
+                lines.append(
+                    f"- {pid}: {today.get('calls_today', 0)} calls today, "
+                    f"{today.get('daily_percent') if today.get('daily_percent') is not None else '?'}% of free daily, "
+                    f"{'cooling' if state.get('cooling') else 'ready'}"
+                )
+            blocks.append("\n".join(lines))
+        if "speech.transcribe" in tools or "speech.synthesize" in tools:
+            from jarvis.services.providers import speech
+
+            blocks.append(f"SPEECH BACKENDS (live): {speech.status()}")
+        if "cad.generate" in tools:
+            from jarvis.services.providers import cad
+
+            blocks.append(f"CAD TOOLS (live): {cad.status()}")
+        if "vectors.search" in tools or "vectors.embed" in tools:
+            from jarvis.services.providers import vectors
+
+            blocks.append(f"VECTOR MEMORY (live): {await vectors.stats()}")
+    except Exception:
+        pass
+    return ("\n\n".join(blocks) + "\n\n") if blocks else ""
+
+
+def _gateway_first(agent: AgentRecord) -> bool:
+    """Agents whose model is `gateway` or a free provider id skip Cursor entirely."""
+    from jarvis.services.providers import catalog
+
+    model = (agent.runtime.model or "").strip().lower()
+    return model == "gateway" or model in catalog.PROVIDERS
+
+
+async def _run_gateway(agent: AgentRecord, prompt: str, *, task: str) -> dict:
+    from jarvis.services.providers import catalog, gateway
+
+    model = (agent.runtime.model or "").strip().lower()
+    answered = await gateway.chat_detailed(
+        prompt=prompt,
+        capability=gateway.infer_capability(task, kind="code" if "code" in agent.purpose.lower() else None),
+        source=f"agent.{agent.name_key}",
+        prefer=model if model in catalog.PROVIDERS else None,
+    )
+    return {"ok": True, "result": answered["reply"], "run_id": None, "engine": answered["provider"],
+            "model": answered.get("model")}
+
+
+async def _run_agent_prompt(agent: AgentRecord, prompt: str, *, task: str) -> dict:
+    """Cursor for Cursor-model agents (as before) with the free gateway as fallback; gateway-first otherwise."""
+    if _gateway_first(agent):
+        try:
+            return await _run_gateway(agent, prompt, task=task)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+
+    result = await cursor_agent.run(
+        prompt,
+        cwd=agent.runtime.workspace_dir or str(settings.workspace_dir),
+        model=agent.runtime.model,
+    )
+    if result.get("ok"):
+        return result
+    try:
+        fallback = await _run_gateway(agent, prompt, task=task)
+        fallback["cursor_error"] = result.get("error")
+        return fallback
+    except Exception as exc:
+        return {"ok": False, "error": f"{result.get('error', 'cursor failed')}; gateway: {str(exc)[:200]}"}
+
+
 async def execute_agent(
     agent: AgentRecord,
     task: str,
@@ -88,18 +175,16 @@ async def execute_agent(
         memory="\n\n".join(part for part in (memory_block, timeline) if part),
         conversation=conversation,
     )
+    live = await _live_context(agent)
     prompt = (
         f"{system}\n\n"
         f"{_agent_overlay(agent, specialist_lessons=specialist_lessons)}\n\n"
+        f"{live}"
         f"SPECIALIST TASK:\n{task}\n\n"
         "Reply as William fulfilling the specialist role. "
         "Be concrete, stay within the allowlist, and mention constraints when blocked."
     )
-    result = await cursor_agent.run(
-        prompt,
-        cwd=agent.runtime.workspace_dir or str(settings.workspace_dir),
-        model=agent.runtime.model,
-    )
+    result = await _run_agent_prompt(agent, prompt, task=task)
     learning_state = await agent_learning.record_agent_execution(
         agent,
         task,
@@ -121,6 +206,7 @@ async def execute_agent(
         "engine": "agent",
         "intent": "agent",
         "run_id": result.get("run_id"),
+        "provider": result.get("engine", "cursor"),
         "agent_name": agent.name,
         "agent_version": agent.version,
         "allowed_tools": agent.runtime.allowed_tools,

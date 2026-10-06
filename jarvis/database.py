@@ -78,6 +78,10 @@ async def init_db() -> None:
     await ensure_people_table()
     await ensure_table()
     await ensure_fleet_tables()
+    from jarvis.services.providers import usage as provider_usage, vectors as provider_vectors
+
+    await provider_usage.ensure_tables()
+    await provider_vectors.ensure_tables()
     from jarvis.services import compute_fleet
 
     await compute_fleet.ensure_seed_nodes()

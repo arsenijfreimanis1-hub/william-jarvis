@@ -43,6 +43,10 @@ cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
 </plist>
 EOF
 
+# App icon (SVG → PNG → icns, sets CFBundleIconFile)
+python3 "$ROOT/jarvis/services/app_icons.py" --target "$APP_DIR" --name "William Agent" >/dev/null \
+  || echo "warning: app icon generation skipped"
+
 codesign --force --sign - --identifier com.willy.william-desktop --deep "$APP_DIR" 2>/dev/null || true
 
 rm -rf "$DESKTOP_APP"

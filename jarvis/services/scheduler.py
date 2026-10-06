@@ -91,9 +91,52 @@ async def popup_watchdog() -> None:
     await popup_handler.handle_popups(full_control=True, max_attempts=2)
 
 
+async def provider_key_scan() -> None:
+    """Key Scout: find new free-provider keys wherever they land (env, keys.env, Keychain)."""
+    from jarvis.services.providers import scout
+
+    await scout.scan_keys()
+
+
+async def provider_probe() -> None:
+    """Key Scout: cheap validity probes so dead keys are skipped before they cost a retry."""
+    from jarvis.services.providers import scout
+
+    await scout.probe_all()
+
+
+async def provider_usage_rollup() -> None:
+    """Quota Keeper: prune old usage rows and flag providers near free limits."""
+    from jarvis.services.providers import scout
+
+    await scout.usage_rollup()
+
+
 def start() -> None:
     if scheduler.running:
         return
+    scheduler.add_job(
+        provider_key_scan,
+        "interval",
+        minutes=max(5, settings.provider_key_scan_interval_minutes),
+        id="provider_key_scan",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        provider_probe,
+        "interval",
+        hours=max(1, settings.provider_probe_interval_hours),
+        id="provider_probe",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        provider_usage_rollup,
+        "cron",
+        hour=0,
+        minute=20,
+        id="provider_usage_rollup",
+        replace_existing=True,
+    )
     scheduler.add_job(
         morning_briefing,
         "cron",

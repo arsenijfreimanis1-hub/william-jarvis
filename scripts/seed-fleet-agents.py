@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Idempotently seed LAN fleet specialist agents from jarvis/agents/fleet/*.md."""
+"""Idempotently seed specialist agents from jarvis/agents/*/*.md (fleet + free-provider rosters).
+
+Usage:
+    .venv/bin/python scripts/seed-fleet-agents.py            # all rosters
+    .venv/bin/python scripts/seed-fleet-agents.py providers  # one roster directory
+"""
 
 from __future__ import annotations
 
@@ -12,9 +17,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from jarvis.services import agent_registry
-from jarvis.services.agent_types import AgentRuntimeConfig, AgentSpec
+from jarvis.services.agent_types import KNOWN_AGENT_TOOLS, AgentRuntimeConfig, AgentSpec
 
-FLEET_DIR = ROOT / "jarvis" / "agents" / "fleet"
+AGENTS_DIR = ROOT / "jarvis" / "agents"
+DEFAULT_TOOLS = ["cursor_agent.run", "terminal.execute", "memory.retrieve", "memory.store"]
+
+
+def _list_field(text: str, label: str) -> list[str]:
+    m = re.search(rf"\*\*{label}:\*\*\s*(.+)$", text, re.M | re.I)
+    if not m:
+        return []
+    return [part.strip() for part in m.group(1).split(",") if part.strip()]
 
 
 def _parse_md(path: Path) -> AgentSpec:
@@ -37,6 +50,9 @@ def _parse_md(path: Path) -> AgentSpec:
     role = (role_m.group(1).lower() if role_m else None)
     if role not in ("control", "planner", "tester", "general"):
         role = None
+    tools = [t for t in _list_field(text, "tools") if t in KNOWN_AGENT_TOOLS] or DEFAULT_TOOLS
+    caps = _list_field(text, "preferred_capabilities")
+    model_m = re.search(r"\*\*model:\*\*\s*([\w.:/-]+)", text, re.M | re.I)
     return AgentSpec(
         name=name,
         purpose=purpose,
@@ -44,28 +60,39 @@ def _parse_md(path: Path) -> AgentSpec:
         trigger_phrases=triggers,
         runtime=AgentRuntimeConfig(
             preferred_role=role,
-            allowed_tools=["cursor_agent.run", "terminal.execute", "memory.retrieve", "memory.store"],
+            preferred_capabilities=caps,
+            allowed_tools=tools,
+            model=model_m.group(1).strip() if model_m else None,
         ),
     )
 
 
-async def main() -> int:
-    if not FLEET_DIR.is_dir():
-        print(f"missing {FLEET_DIR}", file=sys.stderr)
-        return 1
-    paths = sorted(FLEET_DIR.glob("*.md"))
+def roster_dirs(only: str | None) -> list[Path]:
+    if only:
+        return [AGENTS_DIR / only]
+    return sorted(p for p in AGENTS_DIR.iterdir() if p.is_dir() and not p.name.startswith("__"))
+
+
+async def main(argv: list[str]) -> int:
+    only = argv[1] if len(argv) > 1 else None
+    paths: list[Path] = []
+    for d in roster_dirs(only):
+        if not d.is_dir():
+            print(f"missing {d}", file=sys.stderr)
+            return 1
+        paths.extend(sorted(d.glob("*.md")))
     if not paths:
-        print("no fleet agent markdown files", file=sys.stderr)
+        print("no agent markdown files", file=sys.stderr)
         return 1
     seeded = []
     for path in paths:
         spec = _parse_md(path)
         record = await agent_registry.register_agent(spec)
         seeded.append(record.name)
-        print(f"seeded {record.name} (id={record.id} v{record.version})")
+        print(f"seeded {record.name} (id={record.id} v{record.version}) ← {path.parent.name}/{path.name}")
     print(f"done: {len(seeded)} agents")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    raise SystemExit(asyncio.run(main(sys.argv)))

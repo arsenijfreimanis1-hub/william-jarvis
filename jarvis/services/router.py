@@ -32,6 +32,17 @@ FLEET_STATUS_HINTS = re.compile(
     r"is (?:the )?(?:pc|macbook|mac mini) online|wake(?: the)? pc)\b",
     re.I,
 )
+PROVIDER_STATUS_HINTS = re.compile(
+    r"\b(which (?:ai |api )?keys|(?:api|provider|model) (?:usage|quota|status)|"
+    r"scan (?:for )?(?:api )?keys|free (?:api|ai) keys|what (?:models|providers) (?:do we have|are configured)|"
+    r"key scout|quota keeper)\b",
+    re.I,
+)
+CAD_HINTS = re.compile(
+    r"\b(openscad|blender script|3d (?:model|print|part|cad)|\.stl\b|\.step\b|cad (?:model|file)|"
+    r"design (?:a|an|the) (?:bracket|enclosure|case|mount|gear|holder|box))\b",
+    re.I,
+)
 WAKE_ONLY = re.compile(
     r"^(hey\s+)?(willy|willie|william|will|woody|wil)\s*[?.!]*$",
     re.I,
@@ -122,7 +133,7 @@ async def _answer_facts(
     prompt = grounding.fact_answer_prompt(text, fact_text, voice=voice)
     msgs = _history_messages(history)
     msgs.append({"role": "user", "content": prompt})
-    reply = await ollama.chat(system=system, messages=msgs)
+    reply = await ollama.chat(system=system, messages=msgs, capability="reason", source="router.facts")
     reply = grounding.enforce_grounded_reply(
         reply, voice=voice, had_facts=True, confidence=confidence
     )
@@ -165,9 +176,14 @@ async def _answer_chat(
             "Do not invent facts, names, or past events not in context."
         ),
     })
-    reply = await ollama.chat(system=system, messages=msgs)
+    from jarvis.services.providers import gateway
+
+    capability = "fast" if voice else gateway.infer_capability(text, kind="chat")
+    reply = await ollama.chat(system=system, messages=msgs, capability=capability, source="router.chat")
     reply = grounding.enforce_grounded_reply(reply, voice=voice, had_facts=False)
-    return {"reply": _finish(reply, voice=voice), "engine": "willy", "intent": "chat"}
+    engine = gateway.last_decision.get("provider") or "willy"
+    return {"reply": _finish(reply, voice=voice), "engine": engine if engine != "ollama" else "willy",
+            "intent": "chat"}
 
 
 async def route(
@@ -195,6 +211,28 @@ async def route(
             return {"reply": _finish(reply, voice=voice), "engine": "fleet", "intent": "fleet"}
         summary = await fleet_router.status_reply()
         return {"reply": _finish(summary, voice=voice), "engine": "fleet", "intent": "fleet"}
+
+    if PROVIDER_STATUS_HINTS.search(text):
+        from jarvis.services.providers import scout
+
+        if re.search(r"\bscan\b", text, re.I):
+            await scout.scan_keys()
+        summary = await scout.status_reply(voice=voice)
+        return {"reply": _finish(summary, voice=voice) if voice else summary, "engine": "providers",
+                "intent": "providers"}
+
+    if CAD_HINTS.search(text) and not voice:
+        from jarvis.services.providers import cad
+
+        result = await cad.generate(text)
+        if result.get("ok"):
+            rendered = (result.get("render") or {})
+            where = rendered.get("path") or result.get("scad_path") or result.get("script_path")
+            note = "" if rendered.get("ok") else f" ({rendered.get('error', 'not rendered')})"
+            reply = f"CAD source generated with {result.get('provider')} → {where}{note}"
+        else:
+            reply = f"CAD generation failed: {result.get('error', 'unknown error')}"
+        return {"reply": reply, "engine": "cad", "intent": "cad", "cad": result}
 
     agent_invocation = await agent_runtime.resolve_invocation(text)
     if agent_invocation:
@@ -369,6 +407,26 @@ async def route(
             }
         if "CURSOR_API_KEY" in escalated.get("error", ""):
             return await _answer_chat(text, voice=voice, system=system, history=history)
+
+    if kind == "code" and not voice:
+        # Free coding specialists (Codestral / Gemini / Groq) before anything paid.
+        from jarvis.services.providers import gateway
+
+        try:
+            result = await gateway.chat_detailed(
+                _history_messages(history) + [{"role": "user", "content": text}],
+                system=system,
+                capability=gateway.infer_capability(text, kind="code"),
+                source="router.code",
+            )
+            return {
+                "reply": result["reply"],
+                "engine": result["provider"],
+                "model": result.get("model"),
+                "intent": kind,
+            }
+        except Exception:
+            pass
 
     if kind in ("fact", "reason") or grounding.needs_grounding(text):
         if local_runtime.should_use_cursor_reasoning(text, kind=kind, messaging=messaging):

@@ -492,6 +492,21 @@ async def _run_execution_pipeline(build_id: int) -> None:
         if checkout.returncode != 0:
             integration_path = project_path
 
+        if getattr(settings, "app_icons_enabled", True):
+            try:
+                from jarvis.services import app_icons
+
+                icon = await asyncio.to_thread(app_icons.apply_to_project, integration_path)
+                if icon.get("ok"):
+                    await _append_log(
+                        build_id,
+                        f"App icon applied ({icon.get('kind')}, {len(icon.get('applied') or [])} files) — {icon.get('name')}",
+                    )
+                else:
+                    await _append_log(build_id, f"App icon skipped: {icon.get('error', '')[:120]}", level="warn")
+            except Exception as exc:  # icons must never fail a build
+                await _append_log(build_id, f"App icon skipped: {str(exc)[:120]}", level="warn")
+
         final_val = await build_validator.validate_integration(integration_path, stack=stack)
         if not final_val.get("ok") and result.get("failed"):
             await _set_phase(build_id, PHASE_FAILED, status="failed", error="integration validation failed")

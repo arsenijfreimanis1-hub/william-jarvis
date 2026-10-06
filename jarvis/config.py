@@ -123,6 +123,31 @@ class Settings(BaseSettings):
     fleet_pc_mac: str = ""
     fleet_wol_broadcast: str = "255.255.255.255"
     fleet_wol_port: int = 9
+    # Free AI provider gateway — one backend routes every capability to the best free key.
+    # free_cloud_first | local_first | local_only
+    gateway_mode: str = "free_cloud_first"
+    gateway_timeout_seconds: int = 90
+    gateway_log_prompts: bool = False
+    gemini_api_key: str = ""
+    mistral_api_key: str = ""
+    codestral_api_key: str = ""
+    groq_api_key: str = ""
+    huggingface_api_key: str = ""
+    openrouter_api_key: str = ""
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    pinecone_api_key: str = ""
+    pinecone_index_host: str = ""
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    keys_file: Path = Path.home() / ".config" / "jarvis" / "keys.env"
+    keychain_lookup_enabled: bool = True
+    provider_key_scan_interval_minutes: int = 30
+    provider_probe_interval_hours: int = 6
+    semantic_memory_enabled: bool = True
+    personality_prompt: str = ""
+    cad_output_dir: Path = Field(default_factory=lambda: ROOT / "exports" / "cad")
+    hf_mesh_space: str = "stabilityai/TripoSR"
+    app_icons_enabled: bool = True
 
     def resolved_vigil_api_key(self) -> str:
         for candidate in (

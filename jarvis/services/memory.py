@@ -95,10 +95,41 @@ async def store(
             (entry_id, topic, content.strip()[:2000], kind, importance, source),
         )
         await db.commit()
+    # Semantic index (free embeddings → local vectors + Pinecone/Supabase when configured).
+    if settings.semantic_memory_enabled:
+        try:
+            from jarvis.services.providers import vectors
+
+            await vectors.index_memory(entry_id, content.strip()[:2000], kind=kind, importance=importance, topic=topic)
+        except Exception:
+            pass
     return {"id": entry_id, "topic": topic, "content": content.strip()[:2000], "kind": kind}
 
 
 async def retrieve(query: str, *, limit: int = 5) -> list[dict]:
+    """Keyword (FTS) hits first, then semantic hits for anything FTS missed."""
+    hits = await _retrieve_fts(query, limit=limit)
+    if len(hits) >= limit or not settings.semantic_memory_enabled:
+        return hits
+    try:
+        from jarvis.services.providers import vectors
+
+        semantic = await vectors.semantic_search(query, limit=limit)
+    except Exception:
+        semantic = []
+    seen = {h["id"] for h in hits}
+    for s in semantic:
+        if s["id"] in seen:
+            continue
+        hits.append({"id": s["id"], "topic": s.get("topic", ""), "content": s["content"], "kind": s["kind"],
+                     "importance": s["importance"], "created_at": None, "score": round(s["score"], 3)})
+        seen.add(s["id"])
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+async def _retrieve_fts(query: str, *, limit: int = 5) -> list[dict]:
     await ensure_tables()
     fts = _fts_query(query)
     async with aiosqlite.connect(DB_PATH) as db:

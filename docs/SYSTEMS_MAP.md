@@ -33,6 +33,8 @@ flowchart TB
   end
 
   subgraph brains [Model backends]
+    Gateway[providers.gateway free-key router]
+    FreeCloud[Gemini / Codestral / Groq / OpenRouter / HF]
     Ollama[Ollama local :11434]
     WebResearch[web.py research]
     Cursor[cursor_agent.py Cursor SDK]
@@ -54,7 +56,9 @@ flowchart TB
   Planner --> Splitter
   Splitter --> Priority
   Priority --> Router
-  Router --> Ollama
+  Router --> Gateway
+  Gateway --> FreeCloud
+  Gateway -->|always last| Ollama
   Router --> WebResearch
   Router --> Cursor
   Router --> Orch
@@ -77,8 +81,10 @@ flowchart TB
 | **JarvisHelper** | `macos-helper/` Swift menubar | Wake word, STT/TTS, sleep mode, desktop input, screenshots |
 | **Web UIs** | `jarvis/static/panel.html`, `chat.html` | Control panel, chat, voice orb |
 | **William Kiosk** | `macos-helper/Sources/WilliamKiosk/` | Fullscreen home screen: voice hero, transcript, task tree, goal approval |
-| **Ollama** | External install | Local chat, intent assist, task splitting, vision (`moondream`) |
+| **Provider gateway** | `jarvis/services/providers/` | Routes `code` / `fast` / `long_context` / `reason` / `chat` / `stt` / `tts` / `embed` / `cad` to free keys (Gemini, Codestral, Groq, OpenRouter, HF); Key Scout + Quota Keeper track keys and usage — see `docs/PROVIDERS.md` |
+| **Ollama** | External install | Local chat fallback, intent assist, task splitting, vision (`moondream`), local embeddings |
 | **Cursor SDK** | `jarvis/services/cursor_agent.py` | Cloud reasoning and multi-file code work |
+| **App icons** | `jarvis/services/app_icons.py` | Icon set (icns / PNG / favicon / manifest) for every shipped bundle and built project |
 | **OpenClaw** | Gateway `:18789` | WhatsApp → JarvisCore bridge |
 
 ---
@@ -358,6 +364,9 @@ APScheduler runs inside JarvisCore (`scheduler.py`), started from `jarvis/main.p
 | `notion_export` | Every 12h | Export events to Notion (if configured) |
 | `screen_observer` | Every 60s | Summarize screen captures via Ollama |
 | `popup_watchdog` | Every 45s (when full access on) | Native AX dialog dismissal (no TCC spam) |
+| `provider_key_scan` | Every 30 min | Key Scout: discover new free-provider keys (env, keys.env, Keychain) |
+| `provider_probe` | Every 6h | Key Scout: cheap validity probes; dead keys go into cooldown |
+| `provider_usage_rollup` | Daily 00:20 | Quota Keeper: prune ledger, flag providers near free limits |
 
 ---
 
@@ -420,6 +429,7 @@ Privacy: excluded apps (password managers, messaging, mail); screenshots auto-de
 - [`README.md`](../README.md) — quick start and routing table
 - [`docs/MEMORY_AND_SERVER.md`](MEMORY_AND_SERVER.md) — logging, sleep mode, Docker, Cloudflare tunnel
 - [`docs/FLEET.md`](FLEET.md) — LAN fleet (Mac Mini / MacBook / Windows PC), WoL, peer worker
+- [`docs/PROVIDERS.md`](PROVIDERS.md) — free AI provider gateway, key discovery, usage ledger, speech, vector memory, CAD, app icons
 
 ---
 
